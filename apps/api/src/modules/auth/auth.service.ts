@@ -67,7 +67,7 @@ export class AuthService {
     // Reset failed attempts on successful login
     await this.userRepository.update(user.id, {
       failedLoginAttempts: 0,
-      lockedUntil: null,
+      lockedUntil: () => 'NULL',
       lastLoginAt: new Date(),
       status: user.status === UserStatus.PENDING ? UserStatus.ACTIVE : user.status,
     });
@@ -129,7 +129,7 @@ export class AuthService {
 
   // ─── Logout ───────────────────────────────────────────────────────────────
   async logout(userId: string): Promise<void> {
-    await this.userRepository.update(userId, { refreshTokenHash: null });
+    await this.userRepository.update(userId, { refreshTokenHash: () => 'NULL' });
     this.eventEmitter.emit('auth.logout', { userId });
   }
 

@@ -51,7 +51,7 @@ export class Tenant extends BaseEntity {
   @Column({
     type: 'enum',
     enum: TenantPlan,
-    default: TenantPlan.TRIAL,
+    default: TenantPlan.FREE,
   })
   plan: TenantPlan;
 

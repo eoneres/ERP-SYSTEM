@@ -1,3 +1,17 @@
+#!/bin/bash
+# =============================================================================
+# CORREÇÃO DO FLUXO DE LOGIN — Frontend
+# Problema: tokenStore.getTenant() retorna '' na primeira vez,
+# e a API recebe X-Tenant-ID vazio → usuário não encontrado.
+# =============================================================================
+
+set -e
+cd /workspaces/ERP-SYSTEM/apps/web
+
+# =============================================================================
+# Corrige o login/page.tsx para sempre enviar o tenant correto
+# =============================================================================
+cat > src/app/\(auth\)/login/page.tsx << 'LOGINEOF'
 'use client';
 
 import { useState } from 'react';
@@ -172,3 +186,34 @@ export default function LoginPage() {
     </motion.div>
   );
 }
+LOGINEOF
+
+echo "✅ login/page.tsx corrigido"
+
+# =============================================================================
+# Garante que o client.ts sempre envia o tenant padrão quando não há um definido
+# (linha defensiva já coberta no client.ts anterior, mas confirmamos aqui)
+# =============================================================================
+grep -q "DEFAULT_TENANT\|demo-tenant" src/lib/api/client.ts 2>/dev/null || {
+  # Adiciona fallback no request interceptor
+  sed -i "s/if (tenantId) config.headers\['X-Tenant-ID'\] = tenantId;/config.headers['X-Tenant-ID'] = tenantId || 'demo-tenant';/" \
+    src/lib/api/client.ts
+  echo "✅ client.ts: fallback de tenant adicionado"
+}
+
+echo ""
+echo "============================================================"
+echo "✅ Frontend corrigido"
+echo ""
+echo "🚀 SEQUÊNCIA COMPLETA PARA FUNCIONAR:"
+echo ""
+echo "  1. Seed do banco (se ainda não rodou):"
+echo "     cd /workspaces/ERP-SYSTEM/apps/api"
+echo "     bash seed-database.sh"
+echo ""
+echo "  2. Reiniciar o dev (se necessário):"
+echo "     cd /workspaces/ERP-SYSTEM && npm run dev"
+echo ""
+echo "  3. Acessar: http://localhost:3000/login"
+echo "     Email: admin@demo.com | Senha: Admin@123"
+echo "============================================================"

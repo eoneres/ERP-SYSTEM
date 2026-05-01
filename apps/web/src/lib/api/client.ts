@@ -1,78 +1,85 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 import Cookies from 'js-cookie';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+// ─── IMPORTANTE ──────────────────────────────────────────────────────────────
+// Sempre usa URL relativa /api/v1 — o browser chama a mesma origem (porta 3000)
+// e o Next.js faz o proxy interno para localhost:3001.
+// Isso funciona em localhost, Codespaces e produção sem nenhuma configuração extra.
+// NUNCA use process.env.NEXT_PUBLIC_API_URL aqui pois isso faria o browser
+// chamar a porta 3001 diretamente, causando erro de CORS.
+const API_BASE = '/api/v1';
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
-const TOKEN_KEY = 'erp_access_token';
+const TOKEN_KEY   = 'erp_access_token';
 const REFRESH_KEY = 'erp_refresh_token';
-const TENANT_KEY = 'erp_tenant_id';
+const TENANT_KEY  = 'erp_tenant_id';
+
+const isBrowser = typeof window !== 'undefined';
 
 export const tokenStore = {
-  getAccess: () => Cookies.get(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY) || '',
-  getRefresh: () => Cookies.get(REFRESH_KEY) || localStorage.getItem(REFRESH_KEY) || '',
-  getTenant: () => Cookies.get(TENANT_KEY) || localStorage.getItem(TENANT_KEY) || '',
+  getAccess:   () => Cookies.get(TOKEN_KEY)   || (isBrowser ? localStorage.getItem(TOKEN_KEY)   : '') || '',
+  getRefresh:  () => Cookies.get(REFRESH_KEY) || (isBrowser ? localStorage.getItem(REFRESH_KEY) : '') || '',
+  getTenant:   () => Cookies.get(TENANT_KEY)  || (isBrowser ? localStorage.getItem(TENANT_KEY)  : '') || '',
 
   setTokens: (access: string, refresh: string) => {
-    Cookies.set(TOKEN_KEY, access, { secure: true, sameSite: 'strict', expires: 1 / 96 }); // 15min
-    Cookies.set(REFRESH_KEY, refresh, { secure: true, sameSite: 'strict', expires: 7 });
-    localStorage.setItem(TOKEN_KEY, access);
-    localStorage.setItem(REFRESH_KEY, refresh);
+    const secure = isBrowser && window.location.protocol === 'https:';
+    Cookies.set(TOKEN_KEY,   access,  { secure, sameSite: 'strict', expires: 1 / 96 }); // 15min
+    Cookies.set(REFRESH_KEY, refresh, { secure, sameSite: 'strict', expires: 7 });
+    if (isBrowser) {
+      localStorage.setItem(TOKEN_KEY,   access);
+      localStorage.setItem(REFRESH_KEY, refresh);
+    }
   },
 
   setTenant: (tenantId: string) => {
     Cookies.set(TENANT_KEY, tenantId, { expires: 365 });
-    localStorage.setItem(TENANT_KEY, tenantId);
+    if (isBrowser) localStorage.setItem(TENANT_KEY, tenantId);
   },
 
   clear: () => {
     [TOKEN_KEY, REFRESH_KEY, TENANT_KEY].forEach((k) => {
       Cookies.remove(k);
-      localStorage.removeItem(k);
+      if (isBrowser) localStorage.removeItem(k);
     });
   },
 };
 
 // ─── Axios instance ───────────────────────────────────────────────────────────
 const api: AxiosInstance = axios.create({
-  baseURL: API_URL,
+  baseURL: API_BASE,
   timeout: 30_000,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Flag to prevent multiple simultaneous refresh calls
+// ─── Request interceptor ──────────────────────────────────────────────────────
 let isRefreshing = false;
-let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = [];
+let refreshQueue: Array<{ resolve: (t: string) => void; reject: (e: unknown) => void }> = [];
 
-function processQueue(error: any, token: string | null) {
-  refreshQueue.forEach(({ resolve, reject }) =>
-    error ? reject(error) : resolve(token!),
-  );
+function processQueue(error: unknown, token: string | null) {
+  refreshQueue.forEach(({ resolve, reject }) => (error ? reject(error) : resolve(token!)));
   refreshQueue = [];
 }
 
-// ─── Request interceptor ──────────────────────────────────────────────────────
 api.interceptors.request.use((config) => {
-  const token = tokenStore.getAccess();
-  const tenantId = tokenStore.getTenant();
+  const token    = tokenStore.getAccess();
+  const tenantId = tokenStore.getTenant() || 'demo-tenant'; // fallback sempre presente
 
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  if (tenantId) config.headers['X-Tenant-ID'] = tenantId;
+  if (token)    config.headers.Authorization  = `Bearer ${token}`;
+  config.headers['X-Tenant-ID'] = tenantId;
 
   return config;
 });
 
-// ─── Response interceptor (token refresh) ────────────────────────────────────
+// ─── Response interceptor — refresh automático ───────────────────────────────
 api.interceptors.response.use(
-  (response) => response,
+  (res) => res,
   async (error: AxiosError) => {
-    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
-
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const orig = error.config as AxiosRequestConfig & { _retry?: boolean };
+    if (error.response?.status === 401 && !orig._retry) {
       const refreshToken = tokenStore.getRefresh();
       if (!refreshToken) {
         tokenStore.clear();
-        window.location.href = '/login';
+        if (isBrowser) window.location.href = '/login';
         return Promise.reject(error);
       }
 
@@ -80,69 +87,53 @@ api.interceptors.response.use(
         return new Promise((resolve, reject) => {
           refreshQueue.push({ resolve, reject });
         }).then((token) => {
-          originalRequest.headers = {
-            ...originalRequest.headers,
-            Authorization: `Bearer ${token}`,
-          };
-          return api(originalRequest);
+          orig.headers = { ...orig.headers, Authorization: `Bearer ${token}` };
+          return api(orig);
         });
       }
 
-      originalRequest._retry = true;
-      isRefreshing = true;
+      orig._retry   = true;
+      isRefreshing  = true;
 
       try {
-        const { data } = await axios.post(`${API_URL}/auth/refresh`, {
-          refreshToken,
-        });
-
-        const { accessToken, refreshToken: newRefresh } = data.data.tokens ?? data.data;
+        const { data } = await axios.post(`${API_BASE}/auth/refresh`, { refreshToken });
+        const { accessToken, refreshToken: newRefresh } =
+          data.data?.tokens ?? data.data ?? data;
         tokenStore.setTokens(accessToken, newRefresh);
         processQueue(null, accessToken);
-
-        originalRequest.headers = {
-          ...originalRequest.headers,
-          Authorization: `Bearer ${accessToken}`,
-        };
-
-        return api(originalRequest);
-      } catch (refreshError) {
-        processQueue(refreshError, null);
+        orig.headers = { ...orig.headers, Authorization: `Bearer ${accessToken}` };
+        return api(orig);
+      } catch (e) {
+        processQueue(e, null);
         tokenStore.clear();
-        window.location.href = '/login';
-        return Promise.reject(refreshError);
+        if (isBrowser) window.location.href = '/login';
+        return Promise.reject(e);
       } finally {
         isRefreshing = false;
       }
     }
-
     return Promise.reject(error);
   },
 );
 
 export default api;
 
-// ─── Generic request helpers ──────────────────────────────────────────────────
-export async function get<T>(url: string, params?: Record<string, any>): Promise<T> {
+export async function get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
   const { data } = await api.get<{ data: T }>(url, { params });
   return data.data;
 }
-
-export async function post<T>(url: string, body?: any): Promise<T> {
+export async function post<T>(url: string, body?: unknown): Promise<T> {
   const { data } = await api.post<{ data: T }>(url, body);
   return data.data;
 }
-
-export async function put<T>(url: string, body?: any): Promise<T> {
+export async function put<T>(url: string, body?: unknown): Promise<T> {
   const { data } = await api.put<{ data: T }>(url, body);
   return data.data;
 }
-
-export async function patch<T>(url: string, body?: any): Promise<T> {
+export async function patch<T>(url: string, body?: unknown): Promise<T> {
   const { data } = await api.patch<{ data: T }>(url, body);
   return data.data;
 }
-
 export async function del<T>(url: string): Promise<T> {
   const { data } = await api.delete<{ data: T }>(url);
   return data.data;
