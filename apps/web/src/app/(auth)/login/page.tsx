@@ -16,9 +16,11 @@ import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-// ─── Tenant padrão para desenvolvimento ──────────────────────────────────────
-// Em produção isso virá do subdomínio, slug na URL, ou seleção prévia
-const DEFAULT_TENANT = 'demo-tenant';
+// ─── Tenant padrão ────────────────────────────────────────────────────────────
+// Usa o UUID fixo do seed. O backend também aceita o slug "demo-tenant"
+// caso o env não esteja definido.
+const DEMO_TENANT_ID =
+  process.env.NEXT_PUBLIC_DEMO_TENANT_ID || '00000000-0000-4000-8000-000000000001';
 
 function DemoBanner({ onFill }: { onFill: () => void }) {
   return (
@@ -63,9 +65,8 @@ export default function LoginPage() {
   const onSubmit = async (values: LoginFormValues) => {
     setApiError(null);
     try {
-      // Garante que o tenant esteja sempre definido antes da chamada
-      const tenantId = tokenStore.getTenant() || DEFAULT_TENANT;
-      tokenStore.setTenant(tenantId);
+      // Define o tenant ANTES de chamar a API (o client.ts lê do tokenStore)
+      tokenStore.setTenant(DEMO_TENANT_ID);
 
       const response = await authApi.login(values);
       login(response);
@@ -73,13 +74,14 @@ export default function LoginPage() {
       toast.success(`Bem-vindo, ${response.user.firstName}! 👋`);
       router.push('/dashboard');
     } catch (err: any) {
-      const responseData = err?.response?.data;
+      const raw = err?.response?.data?.message;
       const msg =
-        responseData?.error?.message ||   // formato { error: { message } }
-        responseData?.message ||           // formato { message }
-        responseData ||
-        'Falha ao autenticar. Verifique suas credenciais.';
-      setApiError(typeof msg === 'string' ? msg : Array.isArray(msg) ? msg[0] : JSON.stringify(msg));
+        typeof raw === 'string'
+          ? raw
+          : Array.isArray(raw)
+          ? raw[0]
+          : 'Falha ao autenticar. Verifique suas credenciais.';
+      setApiError(msg);
     }
   };
 

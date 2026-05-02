@@ -22,6 +22,14 @@ import {
 } from './dto/auth.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
+// UUID v4 regex
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUUID(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -36,25 +44,66 @@ export class AuthService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  // ─── Resolve tenant ID ────────────────────────────────────────────────────
+  // Se o header tiver um slug como "demo-tenant" ao invés de UUID,
+  // busca o UUID real na tabela tenants. Isso suporta tanto UUID direto
+  // quanto slug amigável no X-Tenant-ID.
+  private async resolveTenantId(tenantIdOrSlug: string | undefined): Promise<string | null> {
+    if (!tenantIdOrSlug) return null;
+
+    // Já é um UUID válido — usa diretamente
+    if (isValidUUID(tenantIdOrSlug)) return tenantIdOrSlug;
+
+    // É um slug — busca o UUID real
+    try {
+      const rows = await this.userRepository.query(
+        `SELECT id FROM tenants WHERE slug = $1 AND status != 'cancelled' LIMIT 1`,
+        [tenantIdOrSlug],
+      );
+      if (rows?.[0]?.id) {
+        this.logger.debug(`Resolved tenant slug '${tenantIdOrSlug}' → ${rows[0].id}`);
+        return rows[0].id;
+      }
+    } catch (err) {
+      // Tabela pode não existir ainda em ambiente de desenvolvimento inicial
+      this.logger.warn(`Could not resolve tenant slug '${tenantIdOrSlug}': ${err}`);
+    }
+
+    return null;
+  }
+
   // ─── Login ────────────────────────────────────────────────────────────────
-  async login(dto: LoginDto, tenantId: string): Promise<AuthResponseDto> {
-    const user = await this.userRepository.findOne({
-      where: { email: dto.email.toLowerCase(), tenantId },
-    });
+  async login(dto: LoginDto, tenantIdHeader: string): Promise<AuthResponseDto> {
+    const tenantId = await this.resolveTenantId(tenantIdHeader);
+
+    // Busca o usuário — filtra por tenantId apenas se tiver um UUID válido
+    const qb = this.userRepository
+      .createQueryBuilder('u')
+      .where('LOWER(u.email) = LOWER(:email)', { email: dto.email });
+
+    if (tenantId) {
+      qb.andWhere('u.tenantId = :tenantId', { tenantId });
+    }
+
+    const user = await qb.getOne();
 
     if (!user) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    // Check if account is locked
     if (user.isLocked) {
       throw new UnauthorizedException(
         `Conta bloqueada até ${user.lockedUntil?.toLocaleString('pt-BR')}. Tente novamente mais tarde.`,
       );
     }
 
-    if (user.status === UserStatus.INACTIVE || user.status === UserStatus.SUSPENDED) {
-      throw new UnauthorizedException('Conta inativa ou suspensa. Contate o administrador.');
+    if (
+      user.status === UserStatus.INACTIVE ||
+      user.status === UserStatus.SUSPENDED
+    ) {
+      throw new UnauthorizedException(
+        'Conta inativa ou suspensa. Contate o administrador.',
+      );
     }
 
     const passwordValid = await user.validatePassword(dto.password);
@@ -64,18 +113,22 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    // Reset failed attempts on successful login
+    // Reset tentativas falhas após login bem-sucedido
     await this.userRepository.update(user.id, {
       failedLoginAttempts: 0,
-      lockedUntil: () => 'NULL',
+      lockedUntil: null,
       lastLoginAt: new Date(),
-      status: user.status === UserStatus.PENDING ? UserStatus.ACTIVE : user.status,
+      status:
+        user.status === UserStatus.PENDING ? UserStatus.ACTIVE : user.status,
     });
 
     const tokens = await this.generateTokens(user);
     await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-    this.eventEmitter.emit('auth.login', { userId: user.id, tenantId });
+    this.eventEmitter.emit('auth.login', {
+      userId: user.id,
+      tenantId: user.tenantId,
+    });
 
     return {
       user: this.toProfileDto(user),
@@ -84,7 +137,15 @@ export class AuthService {
   }
 
   // ─── Register ─────────────────────────────────────────────────────────────
-  async register(dto: RegisterDto, tenantId: string): Promise<AuthResponseDto> {
+  async register(dto: RegisterDto, tenantIdHeader: string): Promise<AuthResponseDto> {
+    const tenantId = await this.resolveTenantId(tenantIdHeader);
+
+    if (!tenantId) {
+      throw new BadRequestException(
+        'Tenant inválido. Verifique o cabeçalho X-Tenant-ID.',
+      );
+    }
+
     const existing = await this.userRepository.findOne({
       where: { email: dto.email.toLowerCase(), tenantId },
     });
@@ -120,7 +181,7 @@ export class AuthService {
     };
   }
 
-  // ─── Refresh Tokens ───────────────────────────────────────────────────────
+  // ─── Refresh tokens ───────────────────────────────────────────────────────
   async refreshTokens(user: User): Promise<AuthTokensDto> {
     const tokens = await this.generateTokens(user);
     await this.saveRefreshToken(user.id, tokens.refreshToken);
@@ -129,18 +190,18 @@ export class AuthService {
 
   // ─── Logout ───────────────────────────────────────────────────────────────
   async logout(userId: string): Promise<void> {
-    await this.userRepository.update(userId, { refreshTokenHash: () => 'NULL' });
+    await this.userRepository.update(userId, { refreshTokenHash: null });
     this.eventEmitter.emit('auth.logout', { userId });
   }
 
-  // ─── Get Profile ──────────────────────────────────────────────────────────
+  // ─── Get profile ──────────────────────────────────────────────────────────
   async getProfile(userId: string): Promise<UserProfileDto> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
     return this.toProfileDto(user);
   }
 
-  // ─── Private Helpers ──────────────────────────────────────────────────────
+  // ─── Private helpers ──────────────────────────────────────────────────────
   private async generateTokens(user: User): Promise<AuthTokensDto> {
     const payload: JwtPayload = {
       sub: user.id,
@@ -167,12 +228,15 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
-      expiresIn: 15 * 60, // 15 minutes in seconds
+      expiresIn: 15 * 60,
       tokenType: 'Bearer',
     };
   }
 
-  private async saveRefreshToken(userId: string, refreshToken: string): Promise<void> {
+  private async saveRefreshToken(
+    userId: string,
+    refreshToken: string,
+  ): Promise<void> {
     const hash = await bcrypt.hash(refreshToken, 10);
     await this.userRepository.update(userId, { refreshTokenHash: hash });
   }
@@ -209,12 +273,17 @@ export class AuthService {
   private getDefaultPermissions(role: UserRole): string[] {
     const permissionMap: Record<UserRole, string[]> = {
       [UserRole.SUPER_ADMIN]: ['*'],
-      [UserRole.TENANT_ADMIN]: ['users:manage', 'settings:manage', 'reports:view', 'finance:manage', 'inventory:manage', 'sales:manage', 'hr:manage'],
-      [UserRole.MANAGER]: ['reports:view', 'finance:view', 'inventory:manage', 'sales:manage', 'hr:view'],
+      [UserRole.TENANT_ADMIN]: [
+        'users:manage', 'settings:manage', 'reports:view',
+        'finance:manage', 'inventory:manage', 'sales:manage', 'hr:manage',
+      ],
+      [UserRole.MANAGER]: [
+        'reports:view', 'finance:view',
+        'inventory:manage', 'sales:manage', 'hr:view',
+      ],
       [UserRole.EMPLOYEE]: ['inventory:view', 'sales:view'],
       [UserRole.VIEWER]: ['reports:view'],
     };
-
     return permissionMap[role] || [];
   }
 }
