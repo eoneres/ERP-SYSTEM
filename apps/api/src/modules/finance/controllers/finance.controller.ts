@@ -21,7 +21,7 @@ import { ApiResponse } from '@shared/dto/api-response.dto';
 @ApiTags('Finance - Accounts')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller({ path: 'finance/accounts', version: '1' })
+@Controller('finance/accounts')
 export class AccountsController {
   constructor(private readonly financeService: FinanceService) {}
 
@@ -66,7 +66,7 @@ export class AccountsController {
 @ApiTags('Finance - Categories')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller({ path: 'finance/categories', version: '1' })
+@Controller('finance/categories')
 export class CategoriesController {
   constructor(private readonly financeService: FinanceService) {}
 
@@ -110,7 +110,7 @@ export class CategoriesController {
 @ApiTags('Finance - Transactions')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller({ path: 'finance/transactions', version: '1' })
+@Controller('finance/transactions')
 export class TransactionsController {
   constructor(private readonly financeService: FinanceService) {}
 
@@ -177,7 +177,7 @@ export class TransactionsController {
 @ApiTags('Finance - Dashboard')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller({ path: 'finance/dashboard', version: '1' })
+@Controller('finance/dashboard')
 export class FinanceDashboardController {
   constructor(private readonly financeService: FinanceService) {}
 

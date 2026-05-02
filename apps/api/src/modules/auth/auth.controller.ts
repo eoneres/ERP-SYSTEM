@@ -29,7 +29,7 @@ import { ApiResponse } from '@shared/dto/api-response.dto';
 @ApiTags('Auth')
 @ApiHeader({ name: 'X-Tenant-ID', required: true, description: 'Tenant identifier' })
 @UseGuards(ThrottlerGuard)
-@Controller({ path: 'auth', version: '1' })
+@Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
