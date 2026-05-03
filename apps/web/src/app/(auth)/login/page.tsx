@@ -16,9 +16,8 @@ import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-// ─── Tenant padrão ────────────────────────────────────────────────────────────
-// Usa o UUID fixo do seed. O backend também aceita o slug "demo-tenant"
-// caso o env não esteja definido.
+// UUID fixo do tenant demo — gerado pelo seed.ts
+// O backend também aceita o slug "demo-tenant" e resolve para este UUID.
 const DEMO_TENANT_ID =
   process.env.NEXT_PUBLIC_DEMO_TENANT_ID || '00000000-0000-4000-8000-000000000001';
 
@@ -65,22 +64,17 @@ export default function LoginPage() {
   const onSubmit = async (values: LoginFormValues) => {
     setApiError(null);
     try {
-      // Define o tenant ANTES de chamar a API (o client.ts lê do tokenStore)
       tokenStore.setTenant(DEMO_TENANT_ID);
-
       const response = await authApi.login(values);
       login(response);
-
       toast.success(`Bem-vindo, ${response.user.firstName}! 👋`);
       router.push('/dashboard');
     } catch (err: any) {
       const raw = err?.response?.data?.message;
       const msg =
-        typeof raw === 'string'
-          ? raw
-          : Array.isArray(raw)
-          ? raw[0]
-          : 'Falha ao autenticar. Verifique suas credenciais.';
+        typeof raw === 'string' ? raw
+        : Array.isArray(raw) ? raw[0]
+        : 'Falha ao autenticar. Verifique suas credenciais.';
       setApiError(msg);
     }
   };
@@ -146,21 +140,13 @@ export default function LoginPage() {
         />
 
         <div className="flex justify-end">
-          <Link
-            href="/forgot-password"
-            className="text-xs text-[var(--text-muted)] hover:text-primary-500 transition-colors"
-          >
+          <Link href="/forgot-password" className="text-xs text-[var(--text-muted)] hover:text-primary-500 transition-colors">
             Esqueceu a senha?
           </Link>
         </div>
 
-        <Button
-          type="submit"
-          fullWidth
-          size="lg"
-          loading={isSubmitting}
-          rightIcon={<ArrowRight className="h-4 w-4" />}
-        >
+        <Button type="submit" fullWidth size="lg" loading={isSubmitting}
+          rightIcon={<ArrowRight className="h-4 w-4" />}>
           Entrar
         </Button>
       </form>

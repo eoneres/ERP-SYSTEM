@@ -30,41 +30,26 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', '--raw', 'incr', 'ping']
+      test: ['CMD', 'redis-cli', '-a', 'erp_redis_pass', 'ping']
       interval: 10s
       timeout: 5s
       retries: 5
 
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: erp_rabbitmq
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: erp_mailpit
     restart: unless-stopped
+    ports:
+      - '1025:1025'   # SMTP
+      - '8025:8025'   # Web UI
     environment:
-      RABBITMQ_DEFAULT_USER: erp_rabbit
-      RABBITMQ_DEFAULT_PASS: erp_rabbit_pass
-    ports:
-      - '5672:5672'
-      - '15672:15672'
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ['CMD', 'rabbitmq-diagnostics', 'check_port_connectivity']
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  mailhog:
-    image: mailhog/mailhog:latest
-    container_name: erp_mailhog
-    restart: unless-stopped
-    ports:
-      - '1025:1025'
-      - '8025:8025'
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
 
 volumes:
   postgres_data:
   redis_data:
-  rabbitmq_data:
 
 networks:
   default:

@@ -15,47 +15,44 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log'],
   });
 
-  const configService = app.get(ConfigService);
-  const port      = configService.get<number>('PORT', 3001);
-  const apiPrefix = configService.get<string>('API_PREFIX', 'api/v1');
-  const nodeEnv   = configService.get<string>('NODE_ENV', 'development');
+  const config  = app.get(ConfigService);
+  const port    = config.get<number>('PORT', 3001);
+  const nodeEnv = config.get<string>('NODE_ENV', 'development');
 
   app.use(helmet.default());
   app.use(compression());
   app.use(cookieParser());
 
-  // ─── CORS ──────────────────────────────────────────────────────────────────
-  // Em desenvolvimento: aceita qualquer origem *.app.github.dev (Codespaces),
-  // localhost e 127.0.0.1. Em produção: somente origens explícitas.
-  const allowedOrigins = (configService.get<string>('CORS_ORIGINS', 'http://localhost:3000'))
-    .split(',')
-    .map((o) => o.trim());
-
+  // ── CORS ───────────────────────────────────────────────────────────────────
   app.enableCors({
     origin: (origin, callback) => {
-      // Sem origin = request server-side (proxy Next.js) — sempre permitir
+      // Sem origin = Next.js proxy server-side → sempre permitir
       if (!origin) return callback(null, true);
 
-      const isAllowed =
-        allowedOrigins.includes(origin) ||
-        (nodeEnv === 'development' && (
-          origin.includes('localhost') ||
+      const allowed =
+        nodeEnv === 'development' &&
+        (origin.includes('localhost') ||
           origin.includes('127.0.0.1') ||
-          origin.endsWith('.app.github.dev')   // Codespaces
-        ));
+          origin.endsWith('.app.github.dev'));
 
-      if (isAllowed) {
-        callback(null, true);
-      } else {
-        callback(new Error(`CORS: origin '${origin}' not allowed`));
-      }
+      const explicit = config
+        .get<string>('CORS_ORIGINS', '')
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
+        .includes(origin);
+
+      callback(null, allowed || explicit);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID', 'X-Request-ID'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID'],
   });
 
-  app.setGlobalPrefix(apiPrefix);
+  // ── Prefix global: /api/v1/*
+  // IMPORTANTE: NÃO usar enableVersioning junto com setGlobalPrefix que já
+  // contém a versão — causaria rotas duplicadas: /api/v1/v1/auth/login
+  app.setGlobalPrefix('api/v1');
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -73,28 +70,33 @@ async function bootstrap() {
   );
 
   if (nodeEnv !== 'production') {
-    const swaggerConfig = new DocumentBuilder()
+    const swaggerCfg = new DocumentBuilder()
       .setTitle('ERP System API')
       .setDescription('Enterprise Resource Planning - REST API')
       .setVersion('1.0')
       .addBearerAuth()
       .addApiKey({ type: 'apiKey', name: 'X-Tenant-ID', in: 'header' }, 'tenant-id')
       .build();
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
-    SwaggerModule.setup('docs', app, document, {
-      swaggerOptions: { persistAuthorization: true },
-    });
+
+    SwaggerModule.setup(
+      'api/v1/docs',
+      app,
+      SwaggerModule.createDocument(app, swaggerCfg),
+      { swaggerOptions: { persistAuthorization: true } },
+    );
   }
 
   await app.listen(port, '0.0.0.0');
 
   console.log(`
-  ╔══════════════════════════════════════════╗
-  ║          ERP SYSTEM API v1.0             ║
-  ╠══════════════════════════════════════════╣
-  ║  Port:  ${port}                              ║
-  ║  Env:   ${nodeEnv.padEnd(32)}║
-  ╚══════════════════════════════════════════╝
+  ╔══════════════════════════════════════════════╗
+  ║           ERP SYSTEM API v1.0                ║
+  ╠══════════════════════════════════════════════╣
+  ║  Port   : ${port}                                 ║
+  ║  Env    : ${nodeEnv.padEnd(34)}║
+  ║  Routes : /api/v1/*                          ║
+  ║  Docs   : http://localhost:${port}/api/v1/docs    ║
+  ╚══════════════════════════════════════════════╝
   `);
 }
 

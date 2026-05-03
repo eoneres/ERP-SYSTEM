@@ -22,12 +22,11 @@ import {
 } from './dto/auth.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
-// UUID v4 regex
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function isValidUUID(value: string): boolean {
-  return UUID_REGEX.test(value);
+function isValidUUID(v: string): boolean {
+  return UUID_REGEX.test(v);
 }
 
 @Injectable()
@@ -44,39 +43,26 @@ export class AuthService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  // ─── Resolve tenant ID ────────────────────────────────────────────────────
-  // Se o header tiver um slug como "demo-tenant" ao invés de UUID,
-  // busca o UUID real na tabela tenants. Isso suporta tanto UUID direto
-  // quanto slug amigável no X-Tenant-ID.
-  private async resolveTenantId(tenantIdOrSlug: string | undefined): Promise<string | null> {
-    if (!tenantIdOrSlug) return null;
+  // Aceita UUID direto ou slug (ex: "demo-tenant") — busca UUID real no banco
+  private async resolveTenantId(raw: string | undefined): Promise<string | null> {
+    if (!raw) return null;
+    if (isValidUUID(raw)) return raw;
 
-    // Já é um UUID válido — usa diretamente
-    if (isValidUUID(tenantIdOrSlug)) return tenantIdOrSlug;
-
-    // É um slug — busca o UUID real
     try {
-      const rows = await this.userRepository.query(
+      const rows: any[] = await this.userRepository.query(
         `SELECT id FROM tenants WHERE slug = $1 AND status != 'cancelled' LIMIT 1`,
-        [tenantIdOrSlug],
+        [raw],
       );
-      if (rows?.[0]?.id) {
-        this.logger.debug(`Resolved tenant slug '${tenantIdOrSlug}' → ${rows[0].id}`);
-        return rows[0].id;
-      }
-    } catch (err) {
-      // Tabela pode não existir ainda em ambiente de desenvolvimento inicial
-      this.logger.warn(`Could not resolve tenant slug '${tenantIdOrSlug}': ${err}`);
+      if (rows?.[0]?.id) return rows[0].id as string;
+    } catch {
+      // tabela pode não existir ainda
     }
-
     return null;
   }
 
-  // ─── Login ────────────────────────────────────────────────────────────────
   async login(dto: LoginDto, tenantIdHeader: string): Promise<AuthResponseDto> {
     const tenantId = await this.resolveTenantId(tenantIdHeader);
 
-    // Busca o usuário — filtra por tenantId apenas se tiver um UUID válido
     const qb = this.userRepository
       .createQueryBuilder('u')
       .where('LOWER(u.email) = LOWER(:email)', { email: dto.email });
@@ -87,75 +73,59 @@ export class AuthService {
 
     const user = await qb.getOne();
 
-    if (!user) {
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
+    if (!user) throw new UnauthorizedException('Credenciais inválidas');
 
     if (user.isLocked) {
       throw new UnauthorizedException(
-        `Conta bloqueada até ${user.lockedUntil?.toLocaleString('pt-BR')}. Tente novamente mais tarde.`,
+        `Conta bloqueada até ${user.lockedUntil?.toLocaleString('pt-BR')}.`,
       );
     }
 
-    if (
-      user.status === UserStatus.INACTIVE ||
-      user.status === UserStatus.SUSPENDED
-    ) {
-      throw new UnauthorizedException(
-        'Conta inativa ou suspensa. Contate o administrador.',
-      );
+    if (user.status === UserStatus.INACTIVE || user.status === UserStatus.SUSPENDED) {
+      throw new UnauthorizedException('Conta inativa ou suspensa.');
     }
 
     const passwordValid = await user.validatePassword(dto.password);
-
     if (!passwordValid) {
       await this.handleFailedLogin(user);
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    // Reset tentativas falhas após login bem-sucedido
-    await this.userRepository.update(user.id, {
-      failedLoginAttempts: 0,
-      lockedUntil: null,
-      lastLoginAt: new Date(),
-      status:
-        user.status === UserStatus.PENDING ? UserStatus.ACTIVE : user.status,
-    });
+    // Usa query builder para evitar erro TS de null em campos opcionais
+    await this.userRepository
+      .createQueryBuilder()
+      .update(User)
+      .set({
+        failedLoginAttempts: 0,
+        lockedUntil: () => 'NULL',
+        lastLoginAt: new Date(),
+        status: user.status === UserStatus.PENDING ? UserStatus.ACTIVE : user.status,
+      })
+      .where('id = :id', { id: user.id })
+      .execute();
 
     const tokens = await this.generateTokens(user);
     await this.saveRefreshToken(user.id, tokens.refreshToken);
 
-    this.eventEmitter.emit('auth.login', {
-      userId: user.id,
-      tenantId: user.tenantId,
-    });
+    this.eventEmitter.emit('auth.login', { userId: user.id, tenantId: user.tenantId });
 
-    return {
-      user: this.toProfileDto(user),
-      tokens,
-    };
+    return { user: this.toProfileDto(user), tokens };
   }
 
-  // ─── Register ─────────────────────────────────────────────────────────────
   async register(dto: RegisterDto, tenantIdHeader: string): Promise<AuthResponseDto> {
     const tenantId = await this.resolveTenantId(tenantIdHeader);
 
     if (!tenantId) {
-      throw new BadRequestException(
-        'Tenant inválido. Verifique o cabeçalho X-Tenant-ID.',
-      );
+      throw new BadRequestException('Tenant inválido. Verifique o cabeçalho X-Tenant-ID.');
     }
 
     const existing = await this.userRepository.findOne({
       where: { email: dto.email.toLowerCase(), tenantId },
     });
+    if (existing) throw new ConflictException('Este email já está cadastrado');
 
-    if (existing) {
-      throw new ConflictException('Este email já está cadastrado');
-    }
-
-    const bcryptRounds = this.configService.get<number>('bcrypt.rounds', 12);
-    const passwordHash = await bcrypt.hash(dto.password, bcryptRounds);
+    const rounds = this.configService.get<number>('bcrypt.rounds', 12);
+    const passwordHash = await bcrypt.hash(dto.password, rounds);
 
     const user = this.userRepository.create({
       firstName: dto.firstName,
@@ -175,33 +145,32 @@ export class AuthService {
 
     this.eventEmitter.emit('auth.register', { userId: user.id, tenantId });
 
-    return {
-      user: this.toProfileDto(user),
-      tokens,
-    };
+    return { user: this.toProfileDto(user), tokens };
   }
 
-  // ─── Refresh tokens ───────────────────────────────────────────────────────
   async refreshTokens(user: User): Promise<AuthTokensDto> {
     const tokens = await this.generateTokens(user);
     await this.saveRefreshToken(user.id, tokens.refreshToken);
     return tokens;
   }
 
-  // ─── Logout ───────────────────────────────────────────────────────────────
   async logout(userId: string): Promise<void> {
-    await this.userRepository.update(userId, { refreshTokenHash: null });
+    await this.userRepository
+      .createQueryBuilder()
+      .update(User)
+      .set({ refreshTokenHash: () => 'NULL' })
+      .where('id = :id', { id: userId })
+      .execute();
+
     this.eventEmitter.emit('auth.logout', { userId });
   }
 
-  // ─── Get profile ──────────────────────────────────────────────────────────
   async getProfile(userId: string): Promise<UserProfileDto> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
     return this.toProfileDto(user);
   }
 
-  // ─── Private helpers ──────────────────────────────────────────────────────
   private async generateTokens(user: User): Promise<AuthTokensDto> {
     const payload: JwtPayload = {
       sub: user.id,
@@ -213,46 +182,53 @@ export class AuthService {
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
-        secret: this.configService.get('JWT_SECRET'),
-        expiresIn: this.configService.get('JWT_EXPIRES_IN', '15m'),
+        secret: this.configService.get<string>('JWT_SECRET'),
+        expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '15m'),
       }),
       this.jwtService.signAsync(
         { sub: user.id },
         {
-          secret: this.configService.get('JWT_REFRESH_SECRET'),
-          expiresIn: this.configService.get('JWT_REFRESH_EXPIRES_IN', '7d'),
+          secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+          expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d'),
         },
       ),
     ]);
 
-    return {
-      accessToken,
-      refreshToken,
-      expiresIn: 15 * 60,
-      tokenType: 'Bearer',
-    };
+    return { accessToken, refreshToken, expiresIn: 900, tokenType: 'Bearer' };
   }
 
-  private async saveRefreshToken(
-    userId: string,
-    refreshToken: string,
-  ): Promise<void> {
+  private async saveRefreshToken(userId: string, refreshToken: string): Promise<void> {
     const hash = await bcrypt.hash(refreshToken, 10);
-    await this.userRepository.update(userId, { refreshTokenHash: hash });
+    await this.userRepository
+      .createQueryBuilder()
+      .update(User)
+      .set({ refreshTokenHash: hash })
+      .where('id = :id', { id: userId })
+      .execute();
   }
 
   private async handleFailedLogin(user: User): Promise<void> {
-    const newAttempts = user.failedLoginAttempts + 1;
-    const update: Partial<User> = { failedLoginAttempts: newAttempts };
+    const attempts = user.failedLoginAttempts + 1;
 
-    if (newAttempts >= this.MAX_FAILED_ATTEMPTS) {
+    if (attempts >= this.MAX_FAILED_ATTEMPTS) {
       const lockUntil = new Date();
       lockUntil.setMinutes(lockUntil.getMinutes() + this.LOCK_DURATION_MINUTES);
-      update.lockedUntil = lockUntil;
       this.logger.warn(`User ${user.email} locked until ${lockUntil}`);
-    }
 
-    await this.userRepository.update(user.id, update);
+      await this.userRepository
+        .createQueryBuilder()
+        .update(User)
+        .set({ failedLoginAttempts: attempts, lockedUntil: lockUntil })
+        .where('id = :id', { id: user.id })
+        .execute();
+    } else {
+      await this.userRepository
+        .createQueryBuilder()
+        .update(User)
+        .set({ failedLoginAttempts: attempts })
+        .where('id = :id', { id: user.id })
+        .execute();
+    }
   }
 
   private toProfileDto(user: User): UserProfileDto {
@@ -271,19 +247,13 @@ export class AuthService {
   }
 
   private getDefaultPermissions(role: UserRole): string[] {
-    const permissionMap: Record<UserRole, string[]> = {
-      [UserRole.SUPER_ADMIN]: ['*'],
-      [UserRole.TENANT_ADMIN]: [
-        'users:manage', 'settings:manage', 'reports:view',
-        'finance:manage', 'inventory:manage', 'sales:manage', 'hr:manage',
-      ],
-      [UserRole.MANAGER]: [
-        'reports:view', 'finance:view',
-        'inventory:manage', 'sales:manage', 'hr:view',
-      ],
-      [UserRole.EMPLOYEE]: ['inventory:view', 'sales:view'],
-      [UserRole.VIEWER]: ['reports:view'],
+    const map: Record<UserRole, string[]> = {
+      [UserRole.SUPER_ADMIN]:  ['*'],
+      [UserRole.TENANT_ADMIN]: ['users:manage','settings:manage','reports:view','finance:manage','inventory:manage','sales:manage','hr:manage'],
+      [UserRole.MANAGER]:      ['reports:view','finance:view','inventory:manage','sales:manage','hr:view'],
+      [UserRole.EMPLOYEE]:     ['inventory:view','sales:view'],
+      [UserRole.VIEWER]:       ['reports:view'],
     };
-    return permissionMap[role] || [];
+    return map[role] || [];
   }
 }
