@@ -15,10 +15,10 @@ export class ApiResponse<T> {
   timestamp: string;
 
   constructor(data: T, message?: string, meta?: PaginationMeta) {
-    this.success = true;
-    this.data = data;
-    this.message = message;
-    this.meta = meta;
+    this.success   = true;
+    this.data      = data;
+    this.message   = message;
+    this.meta      = meta;
     this.timestamp = new Date().toISOString();
   }
 
@@ -26,13 +26,17 @@ export class ApiResponse<T> {
     return new ApiResponse(data, message);
   }
 
+  // CORREÇÃO: paginated retorna a lista + meta NO MESMO NÍVEL que data.
+  // O frontend espera: response.data = { data: T[], meta: {...} }
+  // O client.ts faz: return response.data  →  { data: T[], meta: {...} }
+  // Então o componente faz: result.data  e  result.meta
   static paginated<T>(
-    data: T,
+    items: T,
     total: number,
     page: number,
     limit: number,
     message?: string,
-  ): ApiResponse<T> {
+  ): ApiResponse<{ data: T; meta: PaginationMeta }> {
     const totalPages = Math.ceil(total / limit);
     const meta: PaginationMeta = {
       page,
@@ -42,7 +46,7 @@ export class ApiResponse<T> {
       hasNext: page < totalPages,
       hasPrev: page > 1,
     };
-    return new ApiResponse(data, message, meta);
+    return new ApiResponse({ data: items, meta }, message);
   }
 }
 
@@ -54,12 +58,17 @@ export class ApiErrorResponse {
   timestamp: string;
   path?: string;
 
-  constructor(error: string, message: string | string[], statusCode: number, path?: string) {
-    this.success = false;
-    this.error = error;
-    this.message = message;
+  constructor(
+    error: string,
+    message: string | string[],
+    statusCode: number,
+    path?: string,
+  ) {
+    this.success    = false;
+    this.error      = error;
+    this.message    = message;
     this.statusCode = statusCode;
-    this.timestamp = new Date().toISOString();
-    this.path = path;
+    this.timestamp  = new Date().toISOString();
+    this.path       = path;
   }
 }

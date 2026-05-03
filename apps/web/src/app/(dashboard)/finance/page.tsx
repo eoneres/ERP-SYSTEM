@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   TrendingUp, TrendingDown, Wallet, AlertTriangle,
@@ -61,7 +61,8 @@ export default function FinanceDashboardPage() {
   const { data: summary, isLoading: summaryLoading } = useFinanceSummary(dateFrom, dateTo);
   const { data: cashflow = [], isLoading: cashflowLoading } = useCashFlow(cashflowFrom, dateTo);
   const { data: byCategory = [] } = useByCategory(dateFrom, dateTo);
-  const { data: recentData } = useTransactions({ limit: 8, sortBy: 'createdAt', sortOrder: 'DESC' });
+  const recentFilter = useMemo(() => ({ limit: 8, sortBy: 'createdAt', sortOrder: 'DESC' as const }), []);
+  const { data: recentData } = useTransactions(recentFilter);
   const recentTransactions = (recentData as any)?.data ?? [];
 
   useEffect(() => {
