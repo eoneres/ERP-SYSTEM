@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { financeApi, type TransactionFilter } from '@/lib/api/finance.api';
 import toast from 'react-hot-toast';
-import dayjs from 'dayjs';
 
 // ─── Query keys ───────────────────────────────────────────────────────────────
 export const financeKeys = {
@@ -14,6 +13,11 @@ export const financeKeys = {
   cashflow: (from: string, to: string, groupBy: string) => [...financeKeys.all, 'cashflow', from, to, groupBy] as const,
   byCategory: (from: string, to: string) => [...financeKeys.all, 'byCategory', from, to] as const,
 };
+
+// helper: invalida tudo de finance (exact: false garante subchaves no v5)
+function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
+  return qc.invalidateQueries({ queryKey: financeKeys.all, exact: false });
+}
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
 export function useAccounts() {
@@ -29,7 +33,7 @@ export function useCreateAccount() {
   return useMutation({
     mutationFn: financeApi.createAccount,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: financeKeys.accounts() });
+      qc.invalidateQueries({ queryKey: financeKeys.accounts(), exact: false });
       toast.success('Conta criada com sucesso!');
     },
     onError: (err: any) => toast.error(err?.response?.data?.message ?? 'Erro ao criar conta'),
@@ -41,7 +45,7 @@ export function useUpdateAccount() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => financeApi.updateAccount(id, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: financeKeys.accounts() });
+      qc.invalidateQueries({ queryKey: financeKeys.accounts(), exact: false });
       toast.success('Conta atualizada!');
     },
     onError: (err: any) => toast.error(err?.response?.data?.message ?? 'Erro ao atualizar conta'),
@@ -53,7 +57,7 @@ export function useDeleteAccount() {
   return useMutation({
     mutationFn: financeApi.deleteAccount,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: financeKeys.accounts() });
+      qc.invalidateQueries({ queryKey: financeKeys.accounts(), exact: false });
       toast.success('Conta removida');
     },
     onError: () => toast.error('Erro ao remover conta'),
@@ -74,7 +78,7 @@ export function useCreateCategory() {
   return useMutation({
     mutationFn: financeApi.createCategory,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: financeKeys.categories() });
+      qc.invalidateQueries({ queryKey: financeKeys.categories(), exact: false });
       toast.success('Categoria criada!');
     },
   });
@@ -102,7 +106,7 @@ export function useCreateTransaction() {
   return useMutation({
     mutationFn: financeApi.createTransaction,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: financeKeys.all });
+      invalidateAll(qc);
       toast.success('Transação criada!');
     },
     onError: (err: any) =>
@@ -115,8 +119,8 @@ export function useUpdateTransaction() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) =>
       financeApi.updateTransaction(id, data),
-    onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: financeKeys.all });
+    onSuccess: () => {
+      invalidateAll(qc);
       toast.success('Transação atualizada!');
     },
     onError: (err: any) =>
@@ -130,7 +134,7 @@ export function usePayTransaction() {
     mutationFn: ({ id, ...data }: { id: string; paymentDate: string; paidAmount?: number }) =>
       financeApi.payTransaction(id, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: financeKeys.all });
+      invalidateAll(qc);
       toast.success('Pagamento registrado! ✓');
     },
     onError: (err: any) =>
@@ -143,7 +147,7 @@ export function useDeleteTransaction() {
   return useMutation({
     mutationFn: financeApi.deleteTransaction,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: financeKeys.all });
+      invalidateAll(qc);
       toast.success('Transação removida');
     },
     onError: () => toast.error('Erro ao remover transação'),

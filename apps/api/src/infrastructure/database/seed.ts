@@ -131,6 +131,46 @@ async function main() {
       }
     } catch { console.log(`⚠️  finance_accounts ainda não existe — rode após sync`); }
 
+
+    // ── 4. Categorias financeiras padrão ──────────────────────────────────────
+    try {
+      const [existCat] = await qr.query(
+        `SELECT id FROM finance_categories WHERE tenant_id = $1 LIMIT 1`,
+        [DEMO_TENANT_ID],
+      );
+      if (!existCat) {
+        const [adminRow] = await qr.query(
+          `SELECT id FROM users WHERE email = 'admin@demo.com' AND tenant_id = $1 LIMIT 1`,
+          [DEMO_TENANT_ID],
+        );
+        const adminId = adminRow?.id ?? null;
+        const cats = [
+          // receitas
+          { name: 'Vendas de Produtos',    type: 'income',  color: '#10B981', icon: 'shopping-bag' },
+          { name: 'Prestação de Serviços', type: 'income',  color: '#3B82F6', icon: 'briefcase' },
+          { name: 'Outros Recebimentos',   type: 'income',  color: '#8B5CF6', icon: 'plus-circle' },
+          // despesas
+          { name: 'Folha de Pagamento',    type: 'expense', color: '#EF4444', icon: 'users' },
+          { name: 'Fornecedores',          type: 'expense', color: '#F59E0B', icon: 'truck' },
+          { name: 'Aluguel',               type: 'expense', color: '#EC4899', icon: 'home' },
+          { name: 'Utilities',             type: 'expense', color: '#06B6D4', icon: 'zap' },
+          { name: 'Impostos',              type: 'expense', color: '#6B7280', icon: 'file-text' },
+          { name: 'Marketing',             type: 'expense', color: '#F97316', icon: 'trending-up' },
+          { name: 'Outros Gastos',         type: 'expense', color: '#9CA3AF', icon: 'minus-circle' },
+        ];
+        for (const c of cats) {
+          await qr.query(
+            `INSERT INTO finance_categories (name, type, color, icon, is_active, tenant_id, created_by, created_at, updated_at)
+             VALUES ($1,$2,$3,$4,true,$5,$6,NOW(),NOW())`,
+            [c.name, c.type, c.color, c.icon, DEMO_TENANT_ID, adminId],
+          );
+        }
+        console.log(`✅ ${cats.length} categorias financeiras criadas`);
+      } else {
+        console.log('ℹ️  Categorias já existem');
+      }
+    } catch (e: any) { console.log(`⚠️  Categorias: ${e.message}`); }
+
     await qr.commitTransaction();
 
     console.log(`

@@ -1,5 +1,5 @@
 import {
-  IsString, IsNumber, IsEnum, IsOptional, IsUUID,
+  IsString, IsNumber, IsEnum, IsOptional, IsUUID, ValidateIf,
   IsDateString, IsArray, IsBoolean, Min, MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -57,8 +57,8 @@ export class CreateTransactionDto {
   @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) @Type(() => Number)
   paidAmount?: number;
 
-  @ApiPropertyOptional() @IsOptional() @IsUUID() accountId?: string;
-  @ApiPropertyOptional() @IsOptional() @IsUUID() categoryId?: string;
+  @ApiPropertyOptional() @IsOptional() @ValidateIf((o) => o.accountId !== '' && o.accountId !== null) @IsUUID() accountId?: string;
+  @ApiPropertyOptional() @IsOptional() @ValidateIf((o) => o.categoryId !== '' && o.categoryId !== null) @IsUUID() categoryId?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() destinationAccountId?: string;
 
   @ApiPropertyOptional({ enum: RecurrenceType })
@@ -77,7 +77,7 @@ export class UpdateTransactionDto extends PartialType(CreateTransactionDto) {}
 export class PayTransactionDto {
   @ApiProperty() @IsDateString() paymentDate: string;
   @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0.01) @Type(() => Number) paidAmount?: number;
-  @ApiPropertyOptional() @IsOptional() @IsUUID() accountId?: string;
+  @ApiPropertyOptional() @IsOptional() @ValidateIf((o) => o.accountId !== '' && o.accountId !== null) @IsUUID() accountId?: string;
 }
 
 // ─── Filter / Query DTOs ──────────────────────────────────────────────────────
@@ -88,8 +88,8 @@ export class TransactionFilterDto extends PaginationDto {
   @ApiPropertyOptional({ enum: TransactionStatus })
   @IsOptional() @IsEnum(TransactionStatus) status?: TransactionStatus;
 
-  @ApiPropertyOptional() @IsOptional() @IsUUID() accountId?: string;
-  @ApiPropertyOptional() @IsOptional() @IsUUID() categoryId?: string;
+  @ApiPropertyOptional() @IsOptional() @ValidateIf((o) => o.accountId !== '' && o.accountId !== null) @IsUUID() accountId?: string;
+  @ApiPropertyOptional() @IsOptional() @ValidateIf((o) => o.categoryId !== '' && o.categoryId !== null) @IsUUID() categoryId?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsDateString() dateFrom?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() dateTo?: string;

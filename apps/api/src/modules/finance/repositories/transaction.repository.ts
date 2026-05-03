@@ -69,20 +69,14 @@ export class TransactionRepository {
   async getSummary(tenantId: string, dateFrom?: string, dateTo?: string) {
     const qb = this.repo
       .createQueryBuilder('t')
-      .select([
-        `SUM(CASE WHEN t.type = 'income' AND t.status = 'paid' THEN t.paidAmount ELSE 0 END)`,
-        'AS "totalIncome"',
-        `SUM(CASE WHEN t.type = 'expense' AND t.status = 'paid' THEN t.paidAmount ELSE 0 END)`,
-        'AS "totalExpense"',
-        `SUM(CASE WHEN t.type = 'income' AND t.status = 'pending' THEN t.amount ELSE 0 END)`,
-        'AS "pendingIncome"',
-        `SUM(CASE WHEN t.type = 'expense' AND t.status = 'pending' THEN t.amount ELSE 0 END)`,
-        'AS "pendingExpense"',
-        `COUNT(CASE WHEN t.status = 'overdue' THEN 1 END)`,
-        'AS "overdueCount"',
-        `SUM(CASE WHEN t.status = 'overdue' THEN t.amount ELSE 0 END)`,
-        'AS "overdueAmount"',
-      ])
+      .select(
+        `SUM(CASE WHEN t.type = 'income'  AND t.status = 'paid'    THEN t.paidAmount ELSE 0 END) AS "totalIncome",` +
+        `SUM(CASE WHEN t.type = 'expense' AND t.status = 'paid'    THEN t.paidAmount ELSE 0 END) AS "totalExpense",` +
+        `SUM(CASE WHEN t.type = 'income'  AND t.status = 'pending' THEN t.amount     ELSE 0 END) AS "pendingIncome",` +
+        `SUM(CASE WHEN t.type = 'expense' AND t.status = 'pending' THEN t.amount     ELSE 0 END) AS "pendingExpense",` +
+        `COUNT(CASE WHEN t.status = 'overdue' THEN 1 END)                                        AS "overdueCount",` +
+        `SUM(CASE WHEN t.status = 'overdue'   THEN t.amount ELSE 0 END)                          AS "overdueAmount"`
+      )
       .where('t.tenantId = :tenantId', { tenantId })
       .andWhere('t.deletedAt IS NULL');
 
