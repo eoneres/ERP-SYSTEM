@@ -8,7 +8,6 @@ import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from '@shared/filters/all-exceptions.filter';
 import { ResponseTransformInterceptor } from '@shared/interceptors/response-transform.interceptor';
-import { AuditLogInterceptor } from '@shared/interceptors/audit-log.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -64,10 +63,7 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(
-    new ResponseTransformInterceptor(),
-    new AuditLogInterceptor(),
-  );
+  app.useGlobalInterceptors(new ResponseTransformInterceptor());
 
   if (nodeEnv !== 'production') {
     const swaggerCfg = new DocumentBuilder()

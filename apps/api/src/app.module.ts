@@ -5,7 +5,13 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { BullModule } from '@nestjs/bull';
 import { CacheModule } from '@nestjs/cache-manager';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 
+import { AuditModule }         from '@modules/audit/audit.module';
+import { AuditLogInterceptor } from '@shared/interceptors/audit-log.interceptor';
+
+import { NotificationsModule } from '@modules/notifications/notifications.module';
+import { DashboardModule } from '@modules/dashboard/dashboard.module';
 import { AuthModule } from '@modules/auth/auth.module';
 import { TenantsModule } from '@modules/tenants/tenants.module';
 import { FinanceModule } from '@modules/finance/finance.module';
@@ -95,12 +101,18 @@ import { databaseConfig } from '@config/database.config';
     EventEmitterModule.forRoot({ wildcard: true }),
 
     AuthModule,
+    AuditModule,
+    DashboardModule,
+    NotificationsModule,
     TenantsModule,
     FinanceModule,
     InventoryModule,
     SalesModule,
     HRModule,
     ReportsModule,
+  ],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
   ],
 })
 export class AppModule {}

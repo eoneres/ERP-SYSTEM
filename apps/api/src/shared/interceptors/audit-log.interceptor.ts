@@ -1,41 +1,64 @@
 import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-  Logger,
+  Injectable, NestInterceptor, ExecutionContext, CallHandler,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
-import { Request } from 'express';
+import { Request, Response } from 'express';
+import { AuditService } from '@modules/audit/services/audit.service';
+
+const SKIP_METHODS = ['GET', 'OPTIONS', 'HEAD'];
+const SKIP_URLS    = ['/notifications/stream', '/dashboard/', '/audit'];
 
 @Injectable()
 export class AuditLogInterceptor implements NestInterceptor {
-  private readonly logger = new Logger('AuditLog');
-  private readonly WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
+  constructor(private readonly auditService: AuditService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const request = context.switchToHttp().getRequest<Request>();
-    const { method, url, user } = request as any;
+    const req  = context.switchToHttp().getRequest<Request>();
+    const res  = context.switchToHttp().getResponse<Response>();
+    const { method, url, body, ip, headers } = req;
+    const user = (req as any).user;
 
-    if (!this.WRITE_METHODS.includes(method)) {
-      return next.handle();
-    }
+    // Skip read-only and noisy endpoints
+    if (SKIP_METHODS.includes(method)) return next.handle();
+    if (SKIP_URLS.some((s) => url.includes(s))) return next.handle();
 
-    const now = Date.now();
+    const start = Date.now();
 
     return next.handle().pipe(
       tap({
         next: () => {
-          this.logger.log(
-            JSON.stringify({
-              action: `${method} ${url}`,
-              userId: user?.id,
-              tenantId: user?.tenantId,
-              duration: `${Date.now() - now}ms`,
-              timestamp: new Date().toISOString(),
-            }),
-          );
+          this.auditService.log({
+            tenantId:    user?.tenantId,
+            userId:      user?.id,
+            userEmail:   user?.email,
+            userName:    user ? `${user.firstName} ${user.lastName}` : undefined,
+            method,
+            url,
+            statusCode:  res.statusCode,
+            durationMs:  Date.now() - start,
+            ipAddress:   (headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? ip,
+            userAgent:   headers['user-agent'],
+            requestBody: body,
+            success:     true,
+          });
+        },
+        error: (err) => {
+          this.auditService.log({
+            tenantId:     user?.tenantId,
+            userId:       user?.id,
+            userEmail:    user?.email,
+            userName:     user ? `${user.firstName} ${user.lastName}` : undefined,
+            method,
+            url,
+            statusCode:   err?.status ?? 500,
+            durationMs:   Date.now() - start,
+            ipAddress:    (headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? ip,
+            userAgent:    headers['user-agent'],
+            requestBody:  body,
+            errorMessage: err?.message,
+            success:      false,
+          });
         },
       }),
     );

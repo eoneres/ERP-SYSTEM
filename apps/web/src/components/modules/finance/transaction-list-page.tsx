@@ -204,31 +204,28 @@ export function TransactionListPage({
     },
     {
       key: 'actions' as any,
-      header: '',
+      header: 'Ações',
       align: 'right',
-      width: '100px',
+      width: '140px',
       cell: (row) => (
-        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center justify-end gap-1">
           {row.status !== 'paid' && row.status !== 'cancelled' && (
             <Button
-              variant="ghost"
-              size="icon-sm"
+              variant="outline"
+              size="xs"
               onClick={(e) => {
                 e.stopPropagation();
                 setPayTx(row);
               }}
-              title={type === 'income' ? 'Marcar como recebido' : 'Marcar como pago'}
+              leftIcon={<CheckCircle2 className="h-3 w-3 text-success" />}
             >
-              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+              {type === 'income' ? 'Recebido' : 'Pago'}
             </Button>
           )}
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              openEdit(row);
-            }}
+            onClick={(e) => { e.stopPropagation(); openEdit(row); }}
             title="Editar"
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -236,10 +233,7 @@ export function TransactionListPage({
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteTx(row);
-            }}
+            onClick={(e) => { e.stopPropagation(); setDeleteTx(row); }}
             title="Excluir"
           >
             <Trash2 className="h-3.5 w-3.5 text-danger" />
@@ -278,8 +272,7 @@ export function TransactionListPage({
       </div>
 
       {/* Table */}
-      <div className="[&_tr]:group">
-        <DataTable
+      <DataTable
           columns={columns}
           data={transactions}
           loading={isLoading}
@@ -317,7 +310,6 @@ export function TransactionListPage({
             </div>
           }
         />
-      </div>
 
       {/* Modals */}
       <TransactionModal

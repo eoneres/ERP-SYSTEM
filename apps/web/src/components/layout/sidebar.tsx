@@ -59,12 +59,10 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Vendas',
     href: '/sales',
     icon: ShoppingCart,
-    badge: 3,
-    badgeVariant: 'primary',
     children: [
-      { label: 'Pedidos', href: '/sales/orders' },
-      { label: 'Clientes', href: '/sales/customers' },
-      { label: 'Faturamento', href: '/sales/invoices' },
+      { label: 'Pedidos',     href: '/sales/orders'    },
+      { label: 'Clientes',    href: '/sales/customers' },
+      { label: 'Faturamento', href: '/sales/invoices'  },
     ],
   },
   {
@@ -87,8 +85,8 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const BOTTOM_ITEMS: NavItem[] = [
-  { label: 'Configurações', href: '/settings', icon: Settings },
-  { label: 'Ajuda', href: '/help', icon: HelpCircle },
+  { label: 'Configurações', href: '/settings/company', icon: Settings },
+  { label: 'Ajuda',          href: '/help',             icon: HelpCircle },
 ];
 
 // ─── NavItem component ────────────────────────────────────────────────────────
