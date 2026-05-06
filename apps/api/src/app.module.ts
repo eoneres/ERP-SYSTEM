@@ -10,6 +10,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditModule }         from '@modules/audit/audit.module';
 import { AuditLogInterceptor } from '@shared/interceptors/audit-log.interceptor';
 
+import { PurchasesModule } from '@modules/purchases/purchases.module';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { DashboardModule } from '@modules/dashboard/dashboard.module';
 import { AuthModule } from '@modules/auth/auth.module';
@@ -104,6 +105,7 @@ import { databaseConfig } from '@config/database.config';
     AuditModule,
     DashboardModule,
     NotificationsModule,
+    PurchasesModule,
     TenantsModule,
     FinanceModule,
     InventoryModule,
