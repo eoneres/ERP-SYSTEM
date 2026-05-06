@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, DollarSign, Package, ShoppingCart,
   Users, BarChart3, Settings, ChevronLeft, ChevronRight,
-  LogOut, Bell, HelpCircle, Building2, ChevronDown,
+  LogOut, Bell, HelpCircle, Building2, ChevronDown, ShoppingBag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui.store';
@@ -63,6 +63,16 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Pedidos',     href: '/sales/orders'    },
       { label: 'Clientes',    href: '/sales/customers' },
       { label: 'Faturamento', href: '/sales/invoices'  },
+    ],
+  },
+  {
+    label: 'Compras',
+    href: '/purchases',
+    icon: ShoppingBag,
+    children: [
+      { label: 'Visão Geral',     href: '/purchases'            },
+      { label: 'Ordens de Compra', href: '/purchases/orders'   },
+      { label: 'Fornecedores',    href: '/purchases/suppliers' },
     ],
   },
   {
