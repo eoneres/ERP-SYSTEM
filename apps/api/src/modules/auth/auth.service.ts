@@ -250,7 +250,7 @@ export class AuthService {
     const map: Record<UserRole, string[]> = {
       [UserRole.SUPER_ADMIN]:  ['*'],
       [UserRole.TENANT_ADMIN]: ['users:manage','settings:manage','reports:view','finance:manage','inventory:manage','sales:manage','hr:manage'],
-      [UserRole.MANAGER]:      ['reports:view','finance:view','inventory:manage','sales:manage','hr:view'],
+      [UserRole.MANAGER]:      ['reports:view','finance:view','inventory:manage','sales:manage','hr:manage','users:manage'],
       [UserRole.EMPLOYEE]:     ['inventory:view','sales:view'],
       [UserRole.VIEWER]:       ['reports:view'],
     };

@@ -20,6 +20,7 @@ export interface Column<T> {
   sortable?: boolean;
   align?: 'left' | 'center' | 'right';
   cell?: (row: T, index: number) => React.ReactNode;
+  render?: (row: T, index: number) => React.ReactNode;
   className?: string;
 }
 
@@ -37,6 +38,10 @@ interface DataTableProps<T> {
   data: T[];
   loading?: boolean;
   pagination?: PaginationMeta;
+  // Flat pagination props (alternative to pagination object)
+  total?: number;
+  page?: number;
+  limit?: number;
   onPageChange?: (page: number) => void;
   onLimitChange?: (limit: number) => void;
   onSort?: (key: string, dir: 'ASC' | 'DESC') => void;
@@ -47,6 +52,9 @@ interface DataTableProps<T> {
   onSearch?: (query: string) => void;
   searchValue?: string;
   emptyState?: React.ReactNode;
+  emptyIcon?: React.ReactNode;
+  emptyTitle?: string;
+  emptyDescription?: string;
   rowKey?: keyof T | ((row: T) => string);
   onRowClick?: (row: T) => void;
   selectedRows?: Set<string>;
@@ -82,6 +90,9 @@ export function DataTable<T extends Record<string, any>>({
   data,
   loading = false,
   pagination,
+  total: totalProp,
+  page: pageProp,
+  limit: limitProp,
   onPageChange,
   onLimitChange,
   onSort,
@@ -92,11 +103,30 @@ export function DataTable<T extends Record<string, any>>({
   onSearch,
   searchValue = '',
   emptyState,
+  emptyIcon,
+  emptyTitle,
+  emptyDescription,
   rowKey = 'id',
   onRowClick,
   className,
   stickyHeader = false,
 }: DataTableProps<T>) {
+  // Build a unified pagination object from either source
+  const resolvedPagination: PaginationMeta | undefined = pagination ?? (
+    totalProp !== undefined && pageProp !== undefined && limitProp !== undefined
+      ? {
+          page: pageProp,
+          limit: limitProp,
+          total: totalProp,
+          totalPages: Math.max(1, Math.ceil(totalProp / limitProp)),
+          hasNext: pageProp * limitProp < totalProp,
+          hasPrev: pageProp > 1,
+        }
+      : undefined
+  );
+
+  // Enable search toolbar when onSearch is provided (even if searchable flag not set)
+  const showSearch = searchable || !!onSearch;
   const getRowKey = (row: T): string => {
     if (typeof rowKey === 'function') return rowKey(row);
     return String(row[rowKey]);
@@ -114,7 +144,7 @@ export function DataTable<T extends Record<string, any>>({
   return (
     <div className={cn('flex flex-col gap-0 rounded-xl border border-[var(--border)] overflow-hidden bg-[var(--surface)]', className)}>
       {/* Toolbar */}
-      {searchable && (
+      {showSearch && (
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--surface)]">
           <div className="flex-1 max-w-xs">
             <Input
@@ -167,9 +197,16 @@ export function DataTable<T extends Record<string, any>>({
                 <td colSpan={columns.length}>
                   {emptyState || (
                     <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <div className="text-4xl mb-3">📭</div>
-                      <p className="text-sm font-medium text-[var(--text)]">Nenhum registro encontrado</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-1">Tente ajustar os filtros ou adicionar novos registros</p>
+                      {emptyIcon
+                        ? <div className="mb-3">{emptyIcon}</div>
+                        : <div className="text-4xl mb-3">📭</div>
+                      }
+                      <p className="text-sm font-medium text-[var(--text)]">
+                        {emptyTitle ?? 'Nenhum registro encontrado'}
+                      </p>
+                      <p className="text-xs text-[var(--text-muted)] mt-1">
+                        {emptyDescription ?? 'Tente ajustar os filtros ou adicionar novos registros'}
+                      </p>
                     </div>
                   )}
                 </td>
@@ -200,8 +237,8 @@ export function DataTable<T extends Record<string, any>>({
                           col.className,
                         )}
                       >
-                        {col.cell
-                          ? col.cell(row, index)
+                        {(col.cell ?? col.render)
+                          ? (col.cell ?? col.render)!(row, index)
                           : (row[col.key as keyof T] as React.ReactNode) ?? '—'}
                       </td>
                     ))}
@@ -214,12 +251,12 @@ export function DataTable<T extends Record<string, any>>({
       </div>
 
       {/* Pagination */}
-      {pagination && (
+      {resolvedPagination && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--border)] bg-[var(--surface-2)]">
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
             <span>Linhas por página:</span>
             <select
-              value={pagination.limit}
+              value={resolvedPagination.limit}
               onChange={(e) => onLimitChange?.(Number(e.target.value))}
               className="bg-[var(--surface)] border border-[var(--border)] rounded px-2 py-1 text-xs text-[var(--text)] focus:outline-none focus:border-primary-500"
             >
@@ -228,9 +265,9 @@ export function DataTable<T extends Record<string, any>>({
               ))}
             </select>
             <span className="ml-2">
-              {((pagination.page - 1) * pagination.limit) + 1}–
-              {Math.min(pagination.page * pagination.limit, pagination.total)}{' '}
-              de {pagination.total}
+              {((resolvedPagination.page - 1) * resolvedPagination.limit) + 1}–
+              {Math.min(resolvedPagination.page * resolvedPagination.limit, resolvedPagination.total)}{' '}
+              de {resolvedPagination.total}
             </span>
           </div>
 
@@ -239,7 +276,7 @@ export function DataTable<T extends Record<string, any>>({
               variant="ghost"
               size="icon-sm"
               onClick={() => onPageChange?.(1)}
-              disabled={!pagination.hasPrev}
+              disabled={!resolvedPagination.hasPrev}
               aria-label="Primeira página"
             >
               <ChevronsLeft className="h-3.5 w-3.5" />
@@ -247,20 +284,20 @@ export function DataTable<T extends Record<string, any>>({
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => onPageChange?.(pagination.page - 1)}
-              disabled={!pagination.hasPrev}
+              onClick={() => onPageChange?.(resolvedPagination.page - 1)}
+              disabled={!resolvedPagination.hasPrev}
               aria-label="Página anterior"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
             <span className="px-3 py-1 text-xs font-medium text-[var(--text)]">
-              {pagination.page} / {pagination.totalPages}
+              {resolvedPagination.page} / {resolvedPagination.totalPages}
             </span>
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => onPageChange?.(pagination.page + 1)}
-              disabled={!pagination.hasNext}
+              onClick={() => onPageChange?.(resolvedPagination.page + 1)}
+              disabled={!resolvedPagination.hasNext}
               aria-label="Próxima página"
             >
               <ChevronRight className="h-3.5 w-3.5" />
@@ -268,8 +305,8 @@ export function DataTable<T extends Record<string, any>>({
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => onPageChange?.(pagination.totalPages)}
-              disabled={!pagination.hasNext}
+              onClick={() => onPageChange?.(resolvedPagination.totalPages)}
+              disabled={!resolvedPagination.hasNext}
               aria-label="Última página"
             >
               <ChevronsRight className="h-3.5 w-3.5" />

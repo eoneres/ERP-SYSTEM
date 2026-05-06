@@ -72,9 +72,11 @@ const NAV_ITEMS: NavItem[] = [
     href: '/hr',
     icon: Users,
     children: [
-      { label: 'Funcionários', href: '/hr/employees' },
-      { label: 'Folha de Pagamento', href: '/hr/payroll' },
-      { label: 'Ponto', href: '/hr/attendance' },
+      { label: 'Colaboradores',      href: '/hr/employees'   },
+      { label: 'Usuários do Sistema', href: '/hr/users'       },
+      { label: 'Permissões',         href: '/hr/permissions' },
+      { label: 'Folha de Pagamento', href: '/hr/payroll'     },
+      { label: 'Controle de Ponto',  href: '/hr/attendance'  },
     ],
   },
   {
