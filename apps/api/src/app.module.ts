@@ -20,6 +20,8 @@ import { InventoryModule } from '@modules/inventory/inventory.module';
 import { SalesModule } from '@modules/sales/sales.module';
 import { HRModule } from '@modules/hr/hr.module';
 import { ReportsModule } from '@modules/reports/reports.module';
+import { CrmModule } from '@modules/crm/crm.module';
+import { FiscalModule } from '@modules/fiscal/fiscal.module';
 
 import { appConfig } from '@config/app.config';
 import { databaseConfig } from '@config/database.config';
@@ -82,9 +84,8 @@ import { databaseConfig } from '@config/database.config';
           host: cfg.get('REDIS_HOST', 'localhost'),
           port: cfg.get<number>('REDIS_PORT', 6379),
           password: cfg.get('REDIS_PASSWORD') || undefined,
-          enableOfflineQueue: false,
-          maxRetriesPerRequest: 1,
           lazyConnect: true,
+          maxRetriesPerRequest: null,
         },
       }),
     }),
@@ -112,6 +113,8 @@ import { databaseConfig } from '@config/database.config';
     SalesModule,
     HRModule,
     ReportsModule,
+    CrmModule,
+    FiscalModule,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },

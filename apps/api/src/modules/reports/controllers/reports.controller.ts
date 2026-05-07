@@ -40,14 +40,17 @@ export class ReportsController {
   }
 
   @Post('generate')
-  @ApiOperation({ summary: 'Gerar relatório e retornar arquivo em base64' })
+  @ApiOperation({ summary: 'Gerar relatório — enfileira no BullMQ (retorna executionId) ou executa inline se Redis indisponível' })
   async generate(
     @CurrentTenantId() tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() dto: GenerateDto,
   ) {
     const result = await this.svc.generate(tenantId, userId, dto);
-    return ApiResponse.ok(result, `Relatório gerado: ${result.rowCount} registros`);
+    const msg = (result as any).queued
+      ? 'Relatório enfileirado — acompanhe o status em Histórico'
+      : `Relatório gerado: ${(result as any).rowCount} registros`;
+    return ApiResponse.ok(result, msg);
   }
 
   @Get('executions')

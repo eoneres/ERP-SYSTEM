@@ -5,6 +5,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
 
 import { ReportTemplate, ReportModule as RModule } from '../entities/report-template.entity';
 import { ReportExecution, ExecutionStatus, ExportFormat } from '../entities/report-execution.entity';
@@ -12,11 +14,20 @@ import { ReportQueryEngine } from './report-query.engine';
 import { ReportExportService } from './report-export.service';
 import { SYSTEM_TEMPLATES } from './report-templates.seed';
 
+export const REPORTS_QUEUE = 'reports';
+
 export interface GenerateReportDto {
   templateId: string;
   format:     ExportFormat;
   parameters: Record<string, any>;
 }
+
+/** Limite de linhas por formato para evitar timeout */
+const ROW_LIMITS: Record<ExportFormat, number> = {
+  [ExportFormat.CSV]:  50_000,
+  [ExportFormat.XLSX]: 10_000,
+  [ExportFormat.PDF]:    500,
+};
 
 @Injectable()
 export class ReportsService implements OnModuleInit {
@@ -28,6 +39,7 @@ export class ReportsService implements OnModuleInit {
     private readonly queryEngine:  ReportQueryEngine,
     private readonly exportService: ReportExportService,
     private readonly eventEmitter:  EventEmitter2,
+    @InjectQueue(REPORTS_QUEUE) private readonly reportsQueue: Queue,
   ) {}
 
   // ─── Seed system templates on startup ─────────────────────────────────────
@@ -71,14 +83,13 @@ export class ReportsService implements OnModuleInit {
   async generate(tenantId: string, userId: string, dto: GenerateReportDto) {
     const template = await this.getTemplate(dto.templateId, tenantId);
 
-    // Validate required filters
     for (const filter of template.filters) {
       if (filter.required && !dto.parameters[filter.key]) {
         throw new BadRequestException(`Filtro obrigatório: "${filter.label}"`);
       }
     }
 
-    // Create execution record
+    // Cria registro de execução com status PENDING
     const execution = await this.executionRepo.save(
       this.executionRepo.create({
         tenantId,
@@ -87,52 +98,60 @@ export class ReportsService implements OnModuleInit {
         templateId: template.id,
         parameters: dto.parameters,
         format:     dto.format,
-        status:     ExecutionStatus.PROCESSING,
+        status:     ExecutionStatus.PENDING,
       }),
     );
 
     this.eventEmitter.emit('reports.REPORT_REQUESTED', { tenantId, executionId: execution.id });
 
-    // Execute synchronously (async queue can be added later)
+    // Tenta enfileirar no BullMQ; se Redis indisponível, executa inline
     try {
-      const rows = await this.queryEngine.execute(
-        template.queryDefinition,
-        tenantId,
-        dto.parameters,
+      const queue = this.reportsQueue;
+      // Verifica se a fila está operacional antes de enfileirar
+      await queue.isReady();
+      await queue.add(
+        'generate',
+        { executionId: execution.id, tenantId, templateId: template.id, format: dto.format, parameters: dto.parameters },
+        { attempts: 2, backoff: { type: 'fixed', delay: 3000 }, removeOnComplete: 100, removeOnFail: 50 },
       );
+      return { executionId: execution.id, queued: true };
+    } catch {
+      this.logger.warn('[Reports] Redis indisponível — executando relatório inline');
+      return this.executeInline(execution.id, tenantId, template, dto);
+    }
+  }
+
+  /** Execução inline (fallback sem Redis) */
+  async executeInline(
+    executionId: string,
+    tenantId: string,
+    template: ReportTemplate,
+    dto: GenerateReportDto,
+  ) {
+    await this.executionRepo.update(executionId, { status: ExecutionStatus.PROCESSING });
+    try {
+      const rowLimit = ROW_LIMITS[dto.format];
+      const rows = await this.queryEngine.execute(template.queryDefinition, tenantId, dto.parameters, rowLimit);
 
       const { buffer, mimeType, extension } = await this.exportService.generate(
-        dto.format,
-        template.columns,
-        rows,
-        template.name,
+        dto.format, template.columns, rows, template.name,
       );
 
-      // Store as base64 data URL (no file system needed)
       const dataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
-
-      await this.executionRepo.update(execution.id, {
-        status:      ExecutionStatus.COMPLETED,
-        fileUrl:     dataUrl,
-        rowCount:    rows.length,
-        completedAt: new Date(),
+      await this.executionRepo.update(executionId, {
+        status: ExecutionStatus.COMPLETED, fileUrl: dataUrl,
+        rowCount: rows.length, completedAt: new Date(),
       });
 
-      this.eventEmitter.emit('reports.REPORT_GENERATED', { tenantId, executionId: execution.id, rowCount: rows.length });
-
+      this.eventEmitter.emit('reports.REPORT_GENERATED', { tenantId, executionId, rowCount: rows.length });
       return {
-        executionId: execution.id,
-        rowCount:    rows.length,
-        fileName:    `${template.name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.${extension}`,
-        mimeType,
-        buffer:      buffer.toString('base64'),
+        executionId, queued: false, rowCount: rows.length,
+        fileName: `${template.name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.${extension}`,
+        mimeType, buffer: buffer.toString('base64'),
       };
     } catch (err: any) {
-      await this.executionRepo.update(execution.id, {
-        status:       ExecutionStatus.FAILED,
-        errorMessage: err.message,
-      });
-      this.eventEmitter.emit('reports.REPORT_FAILED', { tenantId, executionId: execution.id, error: err.message });
+      await this.executionRepo.update(executionId, { status: ExecutionStatus.FAILED, errorMessage: err.message });
+      this.eventEmitter.emit('reports.REPORT_FAILED', { tenantId, executionId, error: err.message });
       throw new BadRequestException(`Erro ao gerar relatório: ${err.message}`);
     }
   }

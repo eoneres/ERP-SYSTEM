@@ -24,7 +24,11 @@ export function useGenerateReport() {
       reportsApi.generate(templateId, format, parameters),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['reports', 'executions'] });
-      toast.success(`Relatório gerado — ${data.rowCount} registros`);
+      if (data.queued) {
+        toast.success('Relatório enfileirado — acompanhe o status no histórico');
+      } else {
+        toast.success(`Relatório gerado — ${data.rowCount} registros`);
+      }
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Erro ao gerar relatório'),
@@ -35,7 +39,8 @@ export function useReportExecutions(page = 1) {
   return useQuery({
     queryKey: reportKeys.executions(page),
     queryFn:  () => reportsApi.getExecutions(page),
-    staleTime: 30 * 1000,
+    staleTime: 0,
+    refetchInterval: 5000, // polling para atualizar status de execuções em andamento
     placeholderData: (prev: any) => prev,
   });
 }

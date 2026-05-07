@@ -37,6 +37,7 @@ export interface ReportExecution {
   parameters:  Record<string, any>;
   status:      ExecStatus;
   format:      ExportFormat;
+  fileUrl?:    string; // data URL base64 quando completed
   rowCount?:   number;
   errorMessage?: string;
   completedAt?: string;
@@ -45,10 +46,11 @@ export interface ReportExecution {
 
 export interface GenerateResult {
   executionId: string;
-  rowCount:    number;
-  fileName:    string;
-  mimeType:    string;
-  buffer:      string; // base64
+  queued:      boolean;  // true = enfileirado no BullMQ
+  rowCount?:   number;
+  fileName?:   string;
+  mimeType?:   string;
+  buffer?:     string;   // base64 — presente apenas quando queued=false
 }
 
 export const reportsApi = {

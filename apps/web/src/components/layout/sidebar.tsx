@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, DollarSign, Package, ShoppingCart,
   Users, BarChart3, Settings, ChevronLeft, ChevronRight,
-  LogOut, Bell, HelpCircle, Building2, ChevronDown, ShoppingBag,
+  LogOut, Bell, HelpCircle, Building2, ChevronDown, ShoppingBag, Handshake, FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/store/ui.store';
@@ -14,7 +14,18 @@ import { useAuthStore } from '@/store/auth.store';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useDashboardAlerts } from '@/hooks/use-dashboard';
 import * as React from 'react';
+
+// ─── Dynamic badges hook ──────────────────────────────────────────────────────
+function useDynamicBadges() {
+  const { data: alerts } = useDashboardAlerts();
+  return {
+    pendingOrders:  alerts?.awaitingInvoice?.length ?? 0,
+    lowStock:       alerts?.lowStock?.length        ?? 0,
+    overduePayable: alerts?.overdue?.length         ?? 0,
+  };
+}
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 interface NavItem {
@@ -64,6 +75,16 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Clientes',    href: '/sales/customers' },
       { label: 'Faturamento', href: '/sales/invoices'  },
     ],
+  },
+  {
+    label: 'CRM',
+    href: '/crm',
+    icon: Handshake,
+  },
+  {
+    label: 'Fiscal',
+    href: '/fiscal',
+    icon: FileText,
   },
   {
     label: 'Compras',
@@ -213,6 +234,28 @@ function NavItemComponent({
 export function Sidebar() {
   const { sidebarCollapsed, toggleCollapsed } = useUIStore();
   const { user, logout } = useAuthStore();
+  const badges = useDynamicBadges();
+
+  // Injeta badges dinâmicos nos itens de nav
+  const navItemsWithBadges: NavItem[] = NAV_ITEMS.map((item) => {
+    if (item.href === '/sales') {
+      return {
+        ...item,
+        children: item.children?.map((c) =>
+          c.href === '/sales/orders' && badges.pendingOrders > 0
+            ? { ...c, badge: badges.pendingOrders, badgeVariant: 'warning' as const }
+            : c,
+        ),
+      };
+    }
+    if (item.href === '/inventory' && badges.lowStock > 0) {
+      return { ...item, badge: badges.lowStock, badgeVariant: 'warning' as const };
+    }
+    if (item.href === '/finance' && badges.overduePayable > 0) {
+      return { ...item, badge: badges.overduePayable, badgeVariant: 'danger' as const };
+    }
+    return item;
+  });
 
   const width = sidebarCollapsed ? 68 : 260;
 
@@ -269,7 +312,7 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-0.5">
-        {NAV_ITEMS.map((item) => (
+        {navItemsWithBadges.map((item) => (
           <NavItemComponent
             key={item.href}
             item={item}

@@ -106,13 +106,24 @@ export class ReportExportService {
   private toPdf(columns: ReportColumnDef[], rows: Record<string, any>[], name: string) {
     const lines: string[] = [];
 
-    // Escapa caracteres especiais do PDF
+    // Transliteração UTF-8 → Latin-1 para PDF Type1 (Courier)
+    // Mantém acentos comuns do português sem substituir por '?'
     const esc = (s: string) =>
       String(s)
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+        .replace(/[\u00C0-\u00C5]/g, 'A').replace(/[\u00E0-\u00E5]/g, 'a')
+        .replace(/[\u00C7]/g, 'C').replace(/[\u00E7]/g, 'c')
+        .replace(/[\u00C8-\u00CB]/g, 'E').replace(/[\u00E8-\u00EB]/g, 'e')
+        .replace(/[\u00CC-\u00CF]/g, 'I').replace(/[\u00EC-\u00EF]/g, 'i')
+        .replace(/[\u00D1]/g, 'N').replace(/[\u00F1]/g, 'n')
+        .replace(/[\u00D2-\u00D6\u00D8]/g, 'O').replace(/[\u00F2-\u00F6\u00F8]/g, 'o')
+        .replace(/[\u00D9-\u00DC]/g, 'U').replace(/[\u00F9-\u00FC]/g, 'u')
+        .replace(/[\u00C3]/g, 'A').replace(/[\u00E3]/g, 'a')
+        .replace(/[\u00D5]/g, 'O').replace(/[\u00F5]/g, 'o')
+        .replace(/[^\x20-\x7E]/g, '_')
         .replace(/\\/g, '\\\\')
         .replace(/\(/g, '\\(')
-        .replace(/\)/g, '\\)')
-        .replace(/[^\x20-\x7E]/g, '?'); // substitui não-ASCII por ?
+        .replace(/\)/g, '\\)');
 
     // Cabeçalho
     lines.push(esc(name));
@@ -224,7 +235,7 @@ export class ReportExportService {
     return s;
   }
 
-  // Minimal ZIP builder (store method — no compression, pure Node.js)
+  // Minimal ZIP builder com compressão deflate para XLSX
   private buildZip(files: { name: string; data: string }[]): Buffer {
     const enc     = (s: string) => Buffer.from(s, 'utf8');
     const parts:  Buffer[] = [];
@@ -232,38 +243,41 @@ export class ReportExportService {
     let   offset  = 0;
 
     for (const file of files) {
-      const nameB = enc(file.name);
-      const dataB = enc(file.data);
-      const crc   = this.crc32(dataB);
+      const nameB    = enc(file.name);
+      const dataB    = enc(file.data);
+      const deflated = this.deflateRaw(dataB);
+      // Usa deflate apenas se comprimir; caso contrário store
+      const useDeflate = deflated.length < dataB.length;
+      const compData   = useDeflate ? deflated : dataB;
+      const method     = useDeflate ? 8 : 0;
+      const crc        = this.crc32(dataB);
 
-      // Local file header
       const local = Buffer.alloc(30 + nameB.length);
-      local.writeUInt32LE(0x04034b50, 0);  // signature
-      local.writeUInt16LE(20, 4);           // version needed
-      local.writeUInt16LE(0, 6);            // flags
-      local.writeUInt16LE(0, 8);            // compression (store)
-      local.writeUInt16LE(0, 10);           // mod time
-      local.writeUInt16LE(0, 12);           // mod date
+      local.writeUInt32LE(0x04034b50, 0);
+      local.writeUInt16LE(20, 4);
+      local.writeUInt16LE(0, 6);
+      local.writeUInt16LE(method, 8);
+      local.writeUInt16LE(0, 10);
+      local.writeUInt16LE(0, 12);
       local.writeUInt32LE(crc, 14);
-      local.writeUInt32LE(dataB.length, 18);
+      local.writeUInt32LE(compData.length, 18);
       local.writeUInt32LE(dataB.length, 22);
       local.writeUInt16LE(nameB.length, 26);
       local.writeUInt16LE(0, 28);
       nameB.copy(local, 30);
 
-      parts.push(local, dataB);
+      parts.push(local, compData);
 
-      // Central directory entry
       const cent = Buffer.alloc(46 + nameB.length);
       cent.writeUInt32LE(0x02014b50, 0);
       cent.writeUInt16LE(20, 4);
       cent.writeUInt16LE(20, 6);
       cent.writeUInt16LE(0, 8);
-      cent.writeUInt16LE(0, 10);
+      cent.writeUInt16LE(method, 10);
       cent.writeUInt16LE(0, 12);
       cent.writeUInt16LE(0, 14);
       cent.writeUInt32LE(crc, 16);
-      cent.writeUInt32LE(dataB.length, 20);
+      cent.writeUInt32LE(compData.length, 20);
       cent.writeUInt32LE(dataB.length, 24);
       cent.writeUInt16LE(nameB.length, 28);
       cent.writeUInt16LE(0, 30);
@@ -275,11 +289,11 @@ export class ReportExportService {
       nameB.copy(cent, 46);
       central.push(cent);
 
-      offset += local.length + dataB.length;
+      offset += local.length + compData.length;
     }
 
-    const centralBuf  = Buffer.concat(central);
-    const eocd        = Buffer.alloc(22);
+    const centralBuf = Buffer.concat(central);
+    const eocd       = Buffer.alloc(22);
     eocd.writeUInt32LE(0x06054b50, 0);
     eocd.writeUInt16LE(0, 4);
     eocd.writeUInt16LE(0, 6);
@@ -290,6 +304,12 @@ export class ReportExportService {
     eocd.writeUInt16LE(0, 20);
 
     return Buffer.concat([...parts, centralBuf, eocd]);
+  }
+
+  /** Deflate raw usando zlib nativo do Node.js */
+  private deflateRaw(input: Buffer): Buffer {
+    const zlib = require('zlib') as typeof import('zlib');
+    return zlib.deflateRawSync(input, { level: 6 });
   }
 
   private crc32(buf: Buffer): number {

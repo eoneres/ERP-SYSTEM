@@ -13,6 +13,7 @@ export class ReportQueryEngine {
     queryDef: QueryDefinition,
     tenantId: string,
     params: Record<string, any>,
+    rowLimit?: number,
   ): Promise<Record<string, any>[]> {
     let sql = queryDef.sql;
     const values: any[] = [];
@@ -50,6 +51,11 @@ export class ReportQueryEngine {
 
     this.logger.log(`[ReportEngine] SQL:\n${sql}`);
     this.logger.log(`[ReportEngine] values: ${JSON.stringify(values)}`);
+
+    // Aplica LIMIT para evitar timeout e OOM
+    if (rowLimit && rowLimit > 0) {
+      sql = `SELECT * FROM (${sql}) __limited LIMIT ${rowLimit}`;
+    }
 
     const rows = await this.dataSource.query(sql, values);
     this.logger.log(`[ReportEngine] rows returned: ${rows.length}`);

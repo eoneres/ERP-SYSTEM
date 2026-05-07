@@ -62,7 +62,11 @@ export function ReportModal({ open, onClose, defaultModule }: Props) {
       format,
       parameters,
     });
-    downloadReport(result.buffer, result.fileName, result.mimeType);
+    // Se foi enfileirado (Redis disponível), apenas fecha o modal
+    // Se executou inline, faz download imediato
+    if (!result.queued && result.buffer && result.fileName && result.mimeType) {
+      downloadReport(result.buffer, result.fileName, result.mimeType);
+    }
     onClose();
   };
 
