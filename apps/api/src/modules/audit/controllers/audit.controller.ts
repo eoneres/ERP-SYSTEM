@@ -1,10 +1,11 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AuditService } from '../services/audit.service';
-import { JwtAuthGuard, Roles } from '@modules/auth/guards/auth.guard';
+import { JwtAuthGuard, Roles, RequirePermissions } from '@modules/auth/guards/auth.guard';
 import { CurrentTenantId } from '@modules/auth/decorators/current-user.decorator';
 import { ApiResponse } from '@shared/dto/api-response.dto';
 import { UserRole } from '@modules/auth/entities/user.entity';
+import { PERMISSIONS } from '@shared/permissions';
 import { IsOptional, IsString, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -17,6 +18,7 @@ export class AuditController {
   constructor(private readonly svc: AuditService) {}
 
   @Get()
+  @RequirePermissions(PERMISSIONS.AUDIT_VIEW)
   @ApiOperation({ summary: 'Listar logs de auditoria' })
   async getLogs(
     @CurrentTenantId() tenantId: string,
@@ -41,8 +43,21 @@ export class AuditController {
   }
 
   @Get('modules')
+  @RequirePermissions(PERMISSIONS.AUDIT_VIEW)
   @ApiOperation({ summary: 'Listar módulos com logs' })
   async getModules(@CurrentTenantId() tenantId: string) {
     return ApiResponse.ok(await this.svc.getModules(tenantId));
+  }
+
+  @Get('retention-policy')
+  @RequirePermissions(PERMISSIONS.AUDIT_VIEW)
+  @ApiOperation({ summary: 'Política de retenção de logs por módulo (dias)' })
+  async getRetentionPolicy() {
+    return ApiResponse.ok({
+      auth:    Number(process.env.AUDIT_RETENTION_AUTH_DAYS    ?? 365),
+      finance: Number(process.env.AUDIT_RETENTION_FINANCE_DAYS ?? 1825),
+      hr:      Number(process.env.AUDIT_RETENTION_HR_DAYS      ?? 1825),
+      default: Number(process.env.AUDIT_RETENTION_DEFAULT_DAYS ?? 180),
+    });
   }
 }

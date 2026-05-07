@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Account } from './entities/account.entity';
 import { Category } from './entities/category.entity';
 import { Transaction } from './entities/transaction.entity';
+import { AccountLedger } from './entities/account-ledger.entity';
 import { TransactionRepository } from './repositories/transaction.repository';
 import { FinanceService } from './services/finance.service';
 import {
@@ -13,7 +14,7 @@ import {
 } from './controllers/finance.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Account, Category, Transaction])],
+  imports: [TypeOrmModule.forFeature([Account, Category, Transaction, AccountLedger])],
   controllers: [
     AccountsController,
     CategoriesController,

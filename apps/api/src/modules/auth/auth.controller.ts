@@ -25,10 +25,11 @@ import { JwtAuthGuard, JwtRefreshGuard, Public } from './guards/auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { User } from './entities/user.entity';
 import { ApiResponse } from '@shared/dto/api-response.dto';
+import { RateLimit } from '@shared/decorators/rate-limit.decorator';
 
 @ApiTags('Auth')
 @ApiHeader({ name: 'X-Tenant-ID', required: true, description: 'Tenant identifier' })
-@UseGuards(ThrottlerGuard)
+@RateLimit('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -71,8 +72,9 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Encerrar sessão' })
-  async logout(@CurrentUser('id') userId: string) {
-    await this.authService.logout(userId);
+  async logout(@CurrentUser() user: User) {
+    // Passa jti e exp do token atual para revogação imediata na blacklist
+    await this.authService.logout(user.id, (user as any).jti, (user as any).exp);
     return ApiResponse.ok(null, 'Logout realizado com sucesso');
   }
 

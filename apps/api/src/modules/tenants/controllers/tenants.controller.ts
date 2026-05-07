@@ -5,10 +5,11 @@ import {
   UpdateCompanyDto, UpdateBrandingDto,
   UpdateSystemSettingsDto, UpdateFeatureFlagsDto,
 } from '../dto/tenant.dto';
-import { JwtAuthGuard, Roles } from '@modules/auth/guards/auth.guard';
+import { JwtAuthGuard, Roles, RequirePermissions } from '@modules/auth/guards/auth.guard';
 import { CurrentTenantId } from '@modules/auth/decorators/current-user.decorator';
 import { ApiResponse } from '@shared/dto/api-response.dto';
 import { UserRole } from '@modules/auth/entities/user.entity';
+import { PERMISSIONS } from '@shared/permissions';
 
 @ApiTags('Settings')
 @ApiBearerAuth()
@@ -18,6 +19,7 @@ export class TenantsController {
   constructor(private readonly svc: TenantsService) {}
 
   @Get('settings')
+  @RequirePermissions(PERMISSIONS.SETTINGS_VIEW)
   @ApiOperation({ summary: 'Obter configurações do tenant' })
   async getSettings(@CurrentTenantId() tenantId: string) {
     return ApiResponse.ok(await this.svc.getSettings(tenantId));
@@ -25,6 +27,7 @@ export class TenantsController {
 
   @Put('settings')
   @Roles(UserRole.SUPER_ADMIN, UserRole.TENANT_ADMIN)
+  @RequirePermissions(PERMISSIONS.SETTINGS_MANAGE)
   @ApiOperation({ summary: 'Atualizar dados da empresa' })
   async updateCompany(
     @CurrentTenantId() tenantId: string,
@@ -35,6 +38,7 @@ export class TenantsController {
 
   @Patch('branding')
   @Roles(UserRole.SUPER_ADMIN, UserRole.TENANT_ADMIN)
+  @RequirePermissions(PERMISSIONS.SETTINGS_MANAGE)
   @ApiOperation({ summary: 'Atualizar branding (logo, cores, fonte)' })
   async updateBranding(
     @CurrentTenantId() tenantId: string,
@@ -45,6 +49,7 @@ export class TenantsController {
 
   @Patch('system-settings')
   @Roles(UserRole.SUPER_ADMIN, UserRole.TENANT_ADMIN)
+  @RequirePermissions(PERMISSIONS.SETTINGS_MANAGE)
   @ApiOperation({ summary: 'Atualizar configurações do sistema (moeda, timezone, idioma)' })
   async updateSystemSettings(
     @CurrentTenantId() tenantId: string,
@@ -55,6 +60,7 @@ export class TenantsController {
 
   @Patch('features')
   @Roles(UserRole.SUPER_ADMIN, UserRole.TENANT_ADMIN)
+  @RequirePermissions(PERMISSIONS.SETTINGS_MANAGE)
   @ApiOperation({ summary: 'Atualizar feature flags' })
   async updateFeatureFlags(
     @CurrentTenantId() tenantId: string,

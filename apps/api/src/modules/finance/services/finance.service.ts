@@ -2,14 +2,16 @@ import {
   Injectable, NotFoundException, BadRequestException, Logger, Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { Account } from '../entities/account.entity';
 import { Category } from '../entities/category.entity';
-import { Transaction, TransactionType, TransactionStatus } from '../entities/transaction.entity';
+import { Transaction, TransactionType, TransactionStatus, RecurrenceType } from '../entities/transaction.entity';
+import { AccountLedger, LedgerEntryType } from '../entities/account-ledger.entity';
 import { TransactionRepository } from '../repositories/transaction.repository';
 import {
   CreateAccountDto, UpdateAccountDto,
@@ -34,7 +36,10 @@ export class FinanceService {
     private readonly accountRepo: Repository<Account>,
     @InjectRepository(Category)
     private readonly categoryRepo: Repository<Category>,
+    @InjectRepository(AccountLedger)
+    private readonly ledgerRepo: Repository<AccountLedger>,
     private readonly transactionRepo: TransactionRepository,
+    private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
@@ -151,7 +156,7 @@ export class FinanceService {
     const saved = await this.transactionRepo.save(tx);
 
     if (saved.status === TransactionStatus.PAID && saved.accountId) {
-      await this.updateAccountBalance(saved.accountId, tenantId, saved.type, saved.effectiveAmount);
+      await this.updateAccountBalance(saved.accountId, tenantId, saved.type, saved.effectiveAmount, saved.description, saved.id);
     }
 
     this.eventEmitter.emit('finance.transaction.created', { transaction: saved, tenantId });
@@ -180,7 +185,7 @@ export class FinanceService {
     const saved = await this.transactionRepo.save(tx);
 
     if (saved.status === TransactionStatus.PAID && wasNotPaid && saved.accountId) {
-      await this.updateAccountBalance(saved.accountId, tenantId, saved.type, saved.effectiveAmount);
+      await this.updateAccountBalance(saved.accountId, tenantId, saved.type, saved.effectiveAmount, saved.description, saved.id);
     }
 
     await this.cache.del(`finance:summary:${tenantId}`);
@@ -207,7 +212,7 @@ export class FinanceService {
     const saved = await this.transactionRepo.save(tx);
 
     if (accountId) {
-      await this.updateAccountBalance(accountId, tenantId, tx.type, saved.effectiveAmount);
+      await this.updateAccountBalance(accountId, tenantId, tx.type, saved.effectiveAmount, saved.description, saved.id);
     }
 
     this.eventEmitter.emit('finance.transaction.paid', { transaction: saved, tenantId });
@@ -223,7 +228,7 @@ export class FinanceService {
     if (tx.status === TransactionStatus.PAID && tx.accountId) {
       const reverseType =
         tx.type === TransactionType.INCOME ? TransactionType.EXPENSE : TransactionType.INCOME;
-      await this.updateAccountBalance(tx.accountId, tenantId, reverseType, tx.effectiveAmount);
+      await this.updateAccountBalance(tx.accountId, tenantId, reverseType, tx.effectiveAmount, `Estorno: ${tx.description}`, tx.id);
     }
 
     await this.transactionRepo.softDelete(id);
@@ -278,20 +283,103 @@ export class FinanceService {
     return this.transactionRepo.getByCategory(tenantId, dateFrom, dateTo);
   }
 
-  // ─── Private helpers ──────────────────────────────────────────────────────
+
+  // ─── Ledger ────────────────────────────────────────────────────────────────
+
+  async getLedger(accountId: string, tenantId: string, page = 1, limit = 50) {
+    const [items, total] = await this.ledgerRepo.findAndCount({
+      where: { accountId, tenantId },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return { items, total };
+  }
+
+  // ─── Recorrência ───────────────────────────────────────────────────────────
+
+  @Cron(CronExpression.EVERY_DAY_AT_6AM)
+  async generateRecurringTransactions(): Promise<void> {
+    try {
+      const parents = await this.transactionRepo.findActiveRecurringParents();
+
+      for (const parent of parents) {
+        const nextDue = this.nextDueDate(new Date(parent.dueDate), parent.recurrence);
+        if (!nextDue) continue;
+
+        const exists = await this.transactionRepo.recurringChildExists(parent.id, parent.tenantId, nextDue);
+        if (exists) continue;
+
+        await this.transactionRepo.save(
+          this.transactionRepo.create({
+            tenantId:           parent.tenantId,
+            createdBy:          'system',
+            description:        parent.description,
+            amount:             parent.amount,
+            type:               parent.type,
+            status:             TransactionStatus.PENDING,
+            dueDate:            nextDue,
+            accountId:          parent.accountId,
+            categoryId:         parent.categoryId,
+            recurrence:         parent.recurrence,
+            recurrenceEndDate:  parent.recurrenceEndDate,
+            recurrenceParentId: parent.id,
+            counterpartName:    parent.counterpartName,
+            tags:               parent.tags,
+          }),
+        );
+      }
+    } catch (err) {
+      this.logger.error('[Recorrência] Falha ao gerar parcelas', err);
+    }
+  }
+
+  private nextDueDate(from: Date, recurrence: RecurrenceType): Date | null {
+    const d = new Date(from);
+    switch (recurrence) {
+      case RecurrenceType.DAILY:   d.setDate(d.getDate() + 1);         break;
+      case RecurrenceType.WEEKLY:  d.setDate(d.getDate() + 7);         break;
+      case RecurrenceType.MONTHLY: d.setMonth(d.getMonth() + 1);       break;
+      case RecurrenceType.YEARLY:  d.setFullYear(d.getFullYear() + 1); break;
+      default: return null;
+    }
+    return d;
+  }
+
+  // ─── Private helpers ───────────────────────────────────────────────────────
 
   private async updateAccountBalance(
     accountId: string,
     tenantId: string,
     type: TransactionType,
     amount: number,
+    description = 'Movimentação',
+    transactionId?: string,
   ) {
-    const account = await this.accountRepo.findOne({ where: { id: accountId, tenantId } });
-    if (!account) return;
+    await this.dataSource.transaction(async (em) => {
+      const account = await em.findOne(Account, {
+        where: { id: accountId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!account) return;
 
-    const delta = type === TransactionType.INCOME ? amount : -amount;
-    account.currentBalance = Number(account.currentBalance) + delta;
-    await this.accountRepo.save(account);
+      const delta = type === TransactionType.INCOME ? amount : -amount;
+      const balanceAfter = Number(account.currentBalance) + delta;
+      account.currentBalance = balanceAfter;
+      await em.save(Account, account);
+
+      await em.save(AccountLedger, em.create(AccountLedger, {
+        tenantId,
+        accountId,
+        transactionId,
+        type:          type === TransactionType.INCOME ? LedgerEntryType.CREDIT : LedgerEntryType.DEBIT,
+        amount,
+        balanceAfter,
+        description,
+        referenceDate: new Date(),
+        createdBy:     'system',
+      }));
+    });
     await this.cache.del(`finance:accounts:${tenantId}`);
   }
 }

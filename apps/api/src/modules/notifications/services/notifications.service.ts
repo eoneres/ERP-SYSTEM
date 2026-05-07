@@ -203,4 +203,138 @@ export class NotificationsService {
       resourceId:   transaction.id,
     });
   }
+
+  // ─── Eventos sem listener anterior ────────────────────────────────────────
+
+  @OnEvent('purchases.ORDER_CREATED')
+  async onPurchaseCreated({ tenantId, orderId }: { tenantId: string; orderId: string }) {
+    await this.create({
+      tenantId,
+      title:        'Nova Ordem de Compra',
+      message:      'Uma nova ordem de compra foi criada.',
+      type:         NotificationType.INFO,
+      resourceUrl:  '/purchases/orders',
+      resourceType: 'purchase_order',
+      resourceId:   orderId,
+    });
+  }
+
+  @OnEvent('purchases.ORDER_CONFIRMED')
+  async onPurchaseConfirmed({ tenantId, orderId }: { tenantId: string; orderId: string }) {
+    await this.create({
+      tenantId,
+      title:        'Ordem de Compra Confirmada',
+      message:      'Ordem confirmada. Conta a pagar criada no financeiro.',
+      type:         NotificationType.SUCCESS,
+      resourceUrl:  '/purchases/orders',
+      resourceType: 'purchase_order',
+      resourceId:   orderId,
+    });
+  }
+
+  @OnEvent('purchases.ORDER_RECEIVED')
+  async onPurchaseReceived({ tenantId, orderId }: { tenantId: string; orderId: string }) {
+    await this.create({
+      tenantId,
+      title:        'Mercadoria Recebida',
+      message:      'Recebimento registrado. Estoque atualizado automaticamente.',
+      type:         NotificationType.SUCCESS,
+      resourceUrl:  '/purchases/orders',
+      resourceType: 'purchase_order',
+      resourceId:   orderId,
+    });
+  }
+
+  @OnEvent('purchases.ORDER_PAID')
+  async onPurchasePaid({ tenantId, orderId }: { tenantId: string; orderId: string }) {
+    await this.create({
+      tenantId,
+      title:        'Compra Paga',
+      message:      'Pagamento da ordem de compra registrado.',
+      type:         NotificationType.SUCCESS,
+      resourceUrl:  '/purchases/orders',
+      resourceType: 'purchase_order',
+      resourceId:   orderId,
+    });
+  }
+
+  @OnEvent('purchases.ORDER_CANCELLED')
+  async onPurchaseCancelled({ tenantId, orderId }: { tenantId: string; orderId: string }) {
+    await this.create({
+      tenantId,
+      title:        'Ordem de Compra Cancelada',
+      message:      'Uma ordem de compra foi cancelada.',
+      type:         NotificationType.DANGER,
+      resourceUrl:  '/purchases/orders',
+      resourceType: 'purchase_order',
+      resourceId:   orderId,
+    });
+  }
+
+  @OnEvent('finance.transaction.created')
+  async onTransactionCreated({ tenantId, transaction }: { tenantId: string; transaction: any }) {
+    // Notifica apenas contas a pagar vencendo em 3 dias ou menos
+    if (transaction?.type !== 'expense') return;
+    const due = transaction.dueDate ? new Date(transaction.dueDate) : null;
+    if (!due) return;
+    const daysUntilDue = Math.ceil((due.getTime() - Date.now()) / 86_400_000);
+    if (daysUntilDue > 3 || daysUntilDue < 0) return;
+    await this.create({
+      tenantId,
+      title:        'Conta a Pagar Próxima do Vencimento',
+      message:      `"${transaction.description}" vence em ${daysUntilDue <= 0 ? 'hoje' : `${daysUntilDue} dia(s)`}.`,
+      type:         NotificationType.WARNING,
+      resourceUrl:  '/finance/payable',
+      resourceType: 'transaction',
+      resourceId:   transaction.id,
+    });
+  }
+
+  @OnEvent('inventory.product.created')
+  async onProductCreated({ tenantId, productId }: { tenantId: string; productId: string }) {
+    await this.create({
+      tenantId,
+      title:        'Novo Produto Cadastrado',
+      message:      'Um novo produto foi adicionado ao estoque.',
+      type:         NotificationType.INFO,
+      resourceUrl:  '/inventory/products',
+      resourceType: 'product',
+      resourceId:   productId,
+    });
+  }
+
+  @OnEvent('inventory.movement.created')
+  async onMovementCreated({ tenantId, movementId, productId }: { tenantId: string; movementId: string; productId: string }) {
+    // Silencioso — movimentações são frequentes e poluiriam as notificações
+    // Apenas registra no log para rastreabilidade
+    this.logger.debug(`[Notifications] Movimentação ${movementId} criada para produto ${productId} (tenant ${tenantId})`);
+  }
+
+  @OnEvent('hr.ROLE_ASSIGNED')
+  async onRoleAssigned({ tenantId, userId, role }: { tenantId: string; userId: string; role: string }) {
+    if (!role) return;
+    await this.create({
+      tenantId,
+      userId,
+      title:        'Permissões Atualizadas',
+      message:      `Seu perfil de acesso foi atualizado para: ${role}.`,
+      type:         NotificationType.INFO,
+      resourceUrl:  '/hr/users',
+      resourceType: 'user',
+      resourceId:   userId,
+    });
+  }
+
+  @OnEvent('sales.ORDER_CREATED')
+  async onSalesOrderCreated({ tenantId, orderId }: { tenantId: string; orderId: string }) {
+    await this.create({
+      tenantId,
+      title:        'Novo Pedido Criado',
+      message:      'Um novo pedido de venda foi criado.',
+      type:         NotificationType.INFO,
+      resourceUrl:  '/sales/orders',
+      resourceType: 'order',
+      resourceId:   orderId,
+    });
+  }
 }

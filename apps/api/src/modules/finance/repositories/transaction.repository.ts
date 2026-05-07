@@ -167,4 +167,28 @@ export class TransactionRepository {
   create(data: Partial<Transaction>) { return this.repo.create(data); }
   softDelete(id: string) { return this.repo.softDelete(id); }
   merge(entity: Transaction, data: Partial<Transaction>) { return this.repo.merge(entity, data); }
+
+  /** Busca transações recorrentes ativas (raiz, pagas, sem fim ou com fim futuro) */
+  async findActiveRecurringParents(): Promise<Transaction[]> {
+    return this.repo
+      .createQueryBuilder('t')
+      .where('t.recurrence != :none', { none: 'none' })
+      .andWhere('t.recurrenceParentId IS NULL')
+      .andWhere('t.status = :paid', { paid: TransactionStatus.PAID })
+      .andWhere('(t.recurrenceEndDate IS NULL OR t.recurrenceEndDate >= CURRENT_DATE)')
+      .andWhere('t.deletedAt IS NULL')
+      .getMany();
+  }
+
+  /** Verifica se já existe parcela filha com a data de vencimento informada */
+  async recurringChildExists(parentId: string, tenantId: string, dueDate: Date): Promise<boolean> {
+    const count = await this.repo
+      .createQueryBuilder('t')
+      .where('t.tenantId = :tenantId', { tenantId })
+      .andWhere('t.recurrenceParentId = :parentId', { parentId })
+      .andWhere('t.dueDate = :dueDate', { dueDate })
+      .andWhere('t.deletedAt IS NULL')
+      .getCount();
+    return count > 0;
+  }
 }

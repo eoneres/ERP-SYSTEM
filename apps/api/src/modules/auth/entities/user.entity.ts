@@ -97,6 +97,16 @@ export class User extends TenantBaseEntity {
   }
 
   hasPermission(permission: string): boolean {
-    return this.permissions.includes(permission) || this.role === UserRole.SUPER_ADMIN;
+    // Wildcard '*' concede acesso total
+    if (this.permissions.includes('*')) return true;
+    // Verifica permissão exata
+    if (this.permissions.includes(permission)) return true;
+    // Verifica wildcard de módulo: 'finance:*' cobre 'finance:view', 'finance:transaction:pay', etc.
+    const parts = permission.split(':');
+    for (let i = 1; i < parts.length; i++) {
+      const wildcard = parts.slice(0, i).join(':') + ':*';
+      if (this.permissions.includes(wildcard)) return true;
+    }
+    return false;
   }
 }

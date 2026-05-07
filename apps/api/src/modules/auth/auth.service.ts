@@ -21,6 +21,9 @@ import {
   UserProfileDto,
 } from './dto/auth.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { ROLE_PERMISSIONS } from '@shared/permissions';
+import { TokenBlacklistService } from './services/token-blacklist.service';
+import { v4 as uuidv4 } from 'uuid';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -41,22 +44,35 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly blacklist: TokenBlacklistService,
   ) {}
 
   // Aceita UUID direto ou slug (ex: "demo-tenant") — busca UUID real no banco
+  // Se o UUID não existir na tabela tenants, tenta resolver pelo slug
   private async resolveTenantId(raw: string | undefined): Promise<string | null> {
     if (!raw) return null;
-    if (isValidUUID(raw)) return raw;
 
+    if (isValidUUID(raw)) {
+      // Verifica se o UUID existe de fato no banco
+      try {
+        const rows: any[] = await this.userRepository.query(
+          `SELECT id FROM tenants WHERE id = $1 AND status != 'cancelled' LIMIT 1`,
+          [raw],
+        );
+        if (rows?.[0]?.id) return rows[0].id as string;
+      } catch { /* tabela pode não existir ainda */ }
+      // UUID não encontrado — não tenta slug com UUID
+      return null;
+    }
+
+    // Não é UUID — trata como slug
     try {
       const rows: any[] = await this.userRepository.query(
         `SELECT id FROM tenants WHERE slug = $1 AND status != 'cancelled' LIMIT 1`,
         [raw],
       );
       if (rows?.[0]?.id) return rows[0].id as string;
-    } catch {
-      // tabela pode não existir ainda
-    }
+    } catch { /* tabela pode não existir ainda */ }
     return null;
   }
 
@@ -154,7 +170,12 @@ export class AuthService {
     return tokens;
   }
 
-  async logout(userId: string): Promise<void> {
+  async logout(userId: string, jti?: string, exp?: number): Promise<void> {
+    // Revoga o access token atual na blacklist Redis
+    if (jti && exp) {
+      await this.blacklist.revoke(jti, exp);
+    }
+    // Invalida o refresh token no banco
     await this.userRepository
       .createQueryBuilder()
       .update(User)
@@ -172,12 +193,14 @@ export class AuthService {
   }
 
   private async generateTokens(user: User): Promise<AuthTokensDto> {
+    const jti = uuidv4(); // ID único por token — usado para revogação
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       tenantId: user.tenantId,
       permissions: user.permissions,
+      jti,
     };
 
     const [accessToken, refreshToken] = await Promise.all([
@@ -247,13 +270,6 @@ export class AuthService {
   }
 
   private getDefaultPermissions(role: UserRole): string[] {
-    const map: Record<UserRole, string[]> = {
-      [UserRole.SUPER_ADMIN]:  ['*'],
-      [UserRole.TENANT_ADMIN]: ['users:manage','settings:manage','reports:view','finance:manage','inventory:manage','sales:manage','hr:manage'],
-      [UserRole.MANAGER]:      ['reports:view','finance:view','inventory:manage','sales:manage','hr:manage','users:manage'],
-      [UserRole.EMPLOYEE]:     ['inventory:view','sales:view'],
-      [UserRole.VIEWER]:       ['reports:view'],
-    };
-    return map[role] || [];
+    return ROLE_PERMISSIONS[role] ?? [];
   }
 }

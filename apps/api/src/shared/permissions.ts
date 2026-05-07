@@ -1,0 +1,210 @@
+/**
+ * Permissões granulares do sistema ERP.
+ * Formato: <módulo>:<recurso>:<ação>
+ *
+ * Convenção:
+ *  - view   = leitura (GET)
+ *  - create = criação (POST)
+ *  - update = edição  (PUT / PATCH)
+ *  - delete = exclusão (DELETE)
+ *  - manage = todas as ações acima (atalho para admin)
+ *
+ * Ações especiais de negócio são nomeadas explicitamente
+ * (ex: finance:transaction:pay, sales:order:invoice).
+ */
+export const PERMISSIONS = {
+
+  // ─── Financeiro ─────────────────────────────────────────────────────────────
+  FINANCE_VIEW:               'finance:view',
+  FINANCE_ACCOUNT_CREATE:     'finance:account:create',
+  FINANCE_ACCOUNT_UPDATE:     'finance:account:update',
+  FINANCE_ACCOUNT_DELETE:     'finance:account:delete',
+  FINANCE_CATEGORY_CREATE:    'finance:category:create',
+  FINANCE_CATEGORY_UPDATE:    'finance:category:update',
+  FINANCE_CATEGORY_DELETE:    'finance:category:delete',
+  FINANCE_TRANSACTION_CREATE: 'finance:transaction:create',
+  FINANCE_TRANSACTION_UPDATE: 'finance:transaction:update',
+  FINANCE_TRANSACTION_DELETE: 'finance:transaction:delete',
+  FINANCE_TRANSACTION_PAY:    'finance:transaction:pay',
+
+  // ─── Estoque ─────────────────────────────────────────────────────────────────
+  INVENTORY_VIEW:             'inventory:view',
+  INVENTORY_PRODUCT_CREATE:   'inventory:product:create',
+  INVENTORY_PRODUCT_UPDATE:   'inventory:product:update',
+  INVENTORY_PRODUCT_DELETE:   'inventory:product:delete',
+  INVENTORY_MOVEMENT_CREATE:  'inventory:movement:create',
+  INVENTORY_WAREHOUSE_CREATE: 'inventory:warehouse:create',
+  INVENTORY_WAREHOUSE_UPDATE: 'inventory:warehouse:update',
+  INVENTORY_WAREHOUSE_DELETE: 'inventory:warehouse:delete',
+
+  // ─── Vendas ──────────────────────────────────────────────────────────────────
+  SALES_VIEW:                 'sales:view',
+  SALES_CUSTOMER_CREATE:      'sales:customer:create',
+  SALES_CUSTOMER_UPDATE:      'sales:customer:update',
+  SALES_CUSTOMER_DELETE:      'sales:customer:delete',
+  SALES_ORDER_CREATE:         'sales:order:create',
+  SALES_ORDER_UPDATE:         'sales:order:update',
+  SALES_ORDER_DELETE:         'sales:order:delete',
+  SALES_ORDER_CONFIRM:        'sales:order:confirm',
+  SALES_ORDER_INVOICE:        'sales:order:invoice',
+  SALES_ORDER_CANCEL:         'sales:order:cancel',
+  SALES_ORDER_MARK_PAID:      'sales:order:mark_paid',
+
+  // ─── Compras ─────────────────────────────────────────────────────────────────
+  PURCHASES_VIEW:             'purchases:view',
+  PURCHASES_SUPPLIER_CREATE:  'purchases:supplier:create',
+  PURCHASES_SUPPLIER_UPDATE:  'purchases:supplier:update',
+  PURCHASES_SUPPLIER_DELETE:  'purchases:supplier:delete',
+  PURCHASES_ORDER_CREATE:     'purchases:order:create',
+  PURCHASES_ORDER_UPDATE:     'purchases:order:update',
+  PURCHASES_ORDER_DELETE:     'purchases:order:delete',
+  PURCHASES_ORDER_CONFIRM:    'purchases:order:confirm',
+  PURCHASES_ORDER_RECEIVE:    'purchases:order:receive',
+  PURCHASES_ORDER_PAY:        'purchases:order:pay',
+  PURCHASES_ORDER_CANCEL:     'purchases:order:cancel',
+
+  // ─── RH ──────────────────────────────────────────────────────────────────────
+  HR_VIEW:                    'hr:view',
+  HR_EMPLOYEE_CREATE:         'hr:employee:create',
+  HR_EMPLOYEE_UPDATE:         'hr:employee:update',
+  HR_EMPLOYEE_DELETE:         'hr:employee:delete',
+  HR_USER_CREATE:             'hr:user:create',
+  HR_USER_UPDATE:             'hr:user:update',
+  HR_USER_TOGGLE:             'hr:user:toggle',
+  HR_USER_PERMISSIONS:        'hr:user:permissions',
+  HR_PAYROLL_CREATE:          'hr:payroll:create',
+  HR_PAYROLL_UPDATE:          'hr:payroll:update',
+  HR_ATTENDANCE_CREATE:       'hr:attendance:create',
+  HR_ATTENDANCE_CHECKOUT:     'hr:attendance:checkout',
+
+  // ─── CRM ─────────────────────────────────────────────────────────────────────
+  CRM_VIEW:                   'crm:view',
+  CRM_LEAD_CREATE:            'crm:lead:create',
+  CRM_LEAD_UPDATE:            'crm:lead:update',
+  CRM_LEAD_DELETE:            'crm:lead:delete',
+  CRM_LEAD_CONVERT:           'crm:lead:convert',
+  CRM_QUOTE_CREATE:           'crm:quote:create',
+  CRM_QUOTE_UPDATE:           'crm:quote:update',
+  CRM_QUOTE_DELETE:           'crm:quote:delete',
+  CRM_INTERACTION_CREATE:     'crm:interaction:create',
+  CRM_INTERACTION_DELETE:     'crm:interaction:delete',
+
+  // ─── Fiscal ──────────────────────────────────────────────────────────────────
+  FISCAL_VIEW:                'fiscal:view',
+  FISCAL_SERIES_CREATE:       'fiscal:series:create',
+  FISCAL_SERIES_UPDATE:       'fiscal:series:update',
+  FISCAL_SERIES_DELETE:       'fiscal:series:delete',
+  FISCAL_DOCUMENT_ISSUE:      'fiscal:document:issue',
+  FISCAL_DOCUMENT_CANCEL:     'fiscal:document:cancel',
+
+  // ─── Relatórios ──────────────────────────────────────────────────────────────
+  REPORTS_VIEW:               'reports:view',
+  REPORTS_GENERATE:           'reports:generate',
+
+  // ─── Configurações ───────────────────────────────────────────────────────────
+  SETTINGS_VIEW:              'settings:view',
+  SETTINGS_MANAGE:            'settings:manage',
+
+  // ─── Auditoria ───────────────────────────────────────────────────────────────
+  AUDIT_VIEW:                 'audit:view',
+
+} as const;
+
+export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
+
+/**
+ * Mapa de permissões padrão por role.
+ * Usado no AuthService ao criar usuários e no seed.
+ */
+export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
+  super_admin: ['*' as Permission],
+
+  tenant_admin: [
+    PERMISSIONS.FINANCE_VIEW,
+    PERMISSIONS.FINANCE_ACCOUNT_CREATE,   PERMISSIONS.FINANCE_ACCOUNT_UPDATE,   PERMISSIONS.FINANCE_ACCOUNT_DELETE,
+    PERMISSIONS.FINANCE_CATEGORY_CREATE,  PERMISSIONS.FINANCE_CATEGORY_UPDATE,  PERMISSIONS.FINANCE_CATEGORY_DELETE,
+    PERMISSIONS.FINANCE_TRANSACTION_CREATE, PERMISSIONS.FINANCE_TRANSACTION_UPDATE,
+    PERMISSIONS.FINANCE_TRANSACTION_DELETE, PERMISSIONS.FINANCE_TRANSACTION_PAY,
+    PERMISSIONS.INVENTORY_VIEW,
+    PERMISSIONS.INVENTORY_PRODUCT_CREATE, PERMISSIONS.INVENTORY_PRODUCT_UPDATE, PERMISSIONS.INVENTORY_PRODUCT_DELETE,
+    PERMISSIONS.INVENTORY_MOVEMENT_CREATE,
+    PERMISSIONS.INVENTORY_WAREHOUSE_CREATE, PERMISSIONS.INVENTORY_WAREHOUSE_UPDATE, PERMISSIONS.INVENTORY_WAREHOUSE_DELETE,
+    PERMISSIONS.SALES_VIEW,
+    PERMISSIONS.SALES_CUSTOMER_CREATE, PERMISSIONS.SALES_CUSTOMER_UPDATE, PERMISSIONS.SALES_CUSTOMER_DELETE,
+    PERMISSIONS.SALES_ORDER_CREATE, PERMISSIONS.SALES_ORDER_UPDATE, PERMISSIONS.SALES_ORDER_DELETE,
+    PERMISSIONS.SALES_ORDER_CONFIRM, PERMISSIONS.SALES_ORDER_INVOICE, PERMISSIONS.SALES_ORDER_CANCEL, PERMISSIONS.SALES_ORDER_MARK_PAID,
+    PERMISSIONS.PURCHASES_VIEW,
+    PERMISSIONS.PURCHASES_SUPPLIER_CREATE, PERMISSIONS.PURCHASES_SUPPLIER_UPDATE, PERMISSIONS.PURCHASES_SUPPLIER_DELETE,
+    PERMISSIONS.PURCHASES_ORDER_CREATE, PERMISSIONS.PURCHASES_ORDER_UPDATE, PERMISSIONS.PURCHASES_ORDER_DELETE,
+    PERMISSIONS.PURCHASES_ORDER_CONFIRM, PERMISSIONS.PURCHASES_ORDER_RECEIVE, PERMISSIONS.PURCHASES_ORDER_PAY, PERMISSIONS.PURCHASES_ORDER_CANCEL,
+    PERMISSIONS.HR_VIEW,
+    PERMISSIONS.HR_EMPLOYEE_CREATE, PERMISSIONS.HR_EMPLOYEE_UPDATE, PERMISSIONS.HR_EMPLOYEE_DELETE,
+    PERMISSIONS.HR_USER_CREATE, PERMISSIONS.HR_USER_UPDATE, PERMISSIONS.HR_USER_TOGGLE, PERMISSIONS.HR_USER_PERMISSIONS,
+    PERMISSIONS.HR_PAYROLL_CREATE, PERMISSIONS.HR_PAYROLL_UPDATE,
+    PERMISSIONS.HR_ATTENDANCE_CREATE, PERMISSIONS.HR_ATTENDANCE_CHECKOUT,
+    PERMISSIONS.CRM_VIEW,
+    PERMISSIONS.CRM_LEAD_CREATE, PERMISSIONS.CRM_LEAD_UPDATE, PERMISSIONS.CRM_LEAD_DELETE, PERMISSIONS.CRM_LEAD_CONVERT,
+    PERMISSIONS.CRM_QUOTE_CREATE, PERMISSIONS.CRM_QUOTE_UPDATE, PERMISSIONS.CRM_QUOTE_DELETE,
+    PERMISSIONS.CRM_INTERACTION_CREATE, PERMISSIONS.CRM_INTERACTION_DELETE,
+    PERMISSIONS.FISCAL_VIEW,
+    PERMISSIONS.FISCAL_SERIES_CREATE, PERMISSIONS.FISCAL_SERIES_UPDATE, PERMISSIONS.FISCAL_SERIES_DELETE,
+    PERMISSIONS.FISCAL_DOCUMENT_ISSUE, PERMISSIONS.FISCAL_DOCUMENT_CANCEL,
+    PERMISSIONS.REPORTS_VIEW, PERMISSIONS.REPORTS_GENERATE,
+    PERMISSIONS.SETTINGS_VIEW, PERMISSIONS.SETTINGS_MANAGE,
+    PERMISSIONS.AUDIT_VIEW,
+  ],
+
+  manager: [
+    PERMISSIONS.FINANCE_VIEW,
+    PERMISSIONS.FINANCE_TRANSACTION_CREATE, PERMISSIONS.FINANCE_TRANSACTION_UPDATE, PERMISSIONS.FINANCE_TRANSACTION_PAY,
+    PERMISSIONS.INVENTORY_VIEW,
+    PERMISSIONS.INVENTORY_PRODUCT_CREATE, PERMISSIONS.INVENTORY_PRODUCT_UPDATE,
+    PERMISSIONS.INVENTORY_MOVEMENT_CREATE,
+    PERMISSIONS.INVENTORY_WAREHOUSE_CREATE, PERMISSIONS.INVENTORY_WAREHOUSE_UPDATE,
+    PERMISSIONS.SALES_VIEW,
+    PERMISSIONS.SALES_CUSTOMER_CREATE, PERMISSIONS.SALES_CUSTOMER_UPDATE,
+    PERMISSIONS.SALES_ORDER_CREATE, PERMISSIONS.SALES_ORDER_UPDATE,
+    PERMISSIONS.SALES_ORDER_CONFIRM, PERMISSIONS.SALES_ORDER_INVOICE, PERMISSIONS.SALES_ORDER_CANCEL, PERMISSIONS.SALES_ORDER_MARK_PAID,
+    PERMISSIONS.PURCHASES_VIEW,
+    PERMISSIONS.PURCHASES_SUPPLIER_CREATE, PERMISSIONS.PURCHASES_SUPPLIER_UPDATE,
+    PERMISSIONS.PURCHASES_ORDER_CREATE, PERMISSIONS.PURCHASES_ORDER_UPDATE,
+    PERMISSIONS.PURCHASES_ORDER_CONFIRM, PERMISSIONS.PURCHASES_ORDER_RECEIVE, PERMISSIONS.PURCHASES_ORDER_PAY, PERMISSIONS.PURCHASES_ORDER_CANCEL,
+    PERMISSIONS.HR_VIEW,
+    PERMISSIONS.HR_EMPLOYEE_CREATE, PERMISSIONS.HR_EMPLOYEE_UPDATE,
+    PERMISSIONS.HR_PAYROLL_CREATE, PERMISSIONS.HR_PAYROLL_UPDATE,
+    PERMISSIONS.HR_ATTENDANCE_CREATE, PERMISSIONS.HR_ATTENDANCE_CHECKOUT,
+    PERMISSIONS.CRM_VIEW,
+    PERMISSIONS.CRM_LEAD_CREATE, PERMISSIONS.CRM_LEAD_UPDATE, PERMISSIONS.CRM_LEAD_CONVERT,
+    PERMISSIONS.CRM_QUOTE_CREATE, PERMISSIONS.CRM_QUOTE_UPDATE,
+    PERMISSIONS.CRM_INTERACTION_CREATE,
+    PERMISSIONS.FISCAL_VIEW, PERMISSIONS.FISCAL_DOCUMENT_ISSUE,
+    PERMISSIONS.REPORTS_VIEW, PERMISSIONS.REPORTS_GENERATE,
+    PERMISSIONS.SETTINGS_VIEW,
+    PERMISSIONS.AUDIT_VIEW,
+  ],
+
+  employee: [
+    PERMISSIONS.FINANCE_VIEW,
+    PERMISSIONS.INVENTORY_VIEW, PERMISSIONS.INVENTORY_MOVEMENT_CREATE,
+    PERMISSIONS.SALES_VIEW,
+    PERMISSIONS.SALES_ORDER_CREATE, PERMISSIONS.SALES_ORDER_CONFIRM,
+    PERMISSIONS.PURCHASES_VIEW,
+    PERMISSIONS.HR_VIEW, PERMISSIONS.HR_ATTENDANCE_CREATE, PERMISSIONS.HR_ATTENDANCE_CHECKOUT,
+    PERMISSIONS.CRM_VIEW, PERMISSIONS.CRM_LEAD_CREATE, PERMISSIONS.CRM_INTERACTION_CREATE,
+    PERMISSIONS.FISCAL_VIEW,
+    PERMISSIONS.REPORTS_VIEW,
+    PERMISSIONS.SETTINGS_VIEW,
+  ],
+
+  viewer: [
+    PERMISSIONS.FINANCE_VIEW,
+    PERMISSIONS.INVENTORY_VIEW,
+    PERMISSIONS.SALES_VIEW,
+    PERMISSIONS.PURCHASES_VIEW,
+    PERMISSIONS.HR_VIEW,
+    PERMISSIONS.CRM_VIEW,
+    PERMISSIONS.FISCAL_VIEW,
+    PERMISSIONS.REPORTS_VIEW,
+    PERMISSIONS.SETTINGS_VIEW,
+  ],
+};

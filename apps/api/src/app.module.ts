@@ -5,10 +5,12 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { BullModule } from '@nestjs/bull';
 import { CacheModule } from '@nestjs/cache-manager';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { AuditModule }         from '@modules/audit/audit.module';
 import { AuditLogInterceptor } from '@shared/interceptors/audit-log.interceptor';
+import { TenantStatusGuard }   from '@modules/tenants/guards/tenant-status.guard';
 
 import { PurchasesModule } from '@modules/purchases/purchases.module';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
@@ -44,7 +46,12 @@ import { databaseConfig } from '@config/database.config';
         password: cfg.get('DB_PASSWORD', 'erp_pass'),
         database: cfg.get('DB_DATABASE', 'erp_db'),
         autoLoadEntities: true,
+        // synchronize apenas em desenvolvimento — NUNCA em produção
         synchronize: cfg.get('NODE_ENV') !== 'production',
+        // Em produção: executa migrations automaticamente no boot
+        migrationsRun: cfg.get('NODE_ENV') === 'production',
+        migrations: [__dirname + '/../infrastructure/migrations/*{.ts,.js}'],
+        migrationsTableName: 'typeorm_migrations',
         logging: cfg.get('DB_LOGGING') === 'true',
         ssl: cfg.get('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
       }),
@@ -93,14 +100,18 @@ import { databaseConfig } from '@config/database.config';
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (cfg: ConfigService) => ({
-        throttlers: [{
-          ttl:   cfg.get<number>('THROTTLE_TTL', 60_000),
-          limit: cfg.get<number>('THROTTLE_LIMIT', 100),
-        }],
+        // Múltiplos throttlers nomeados — cada @RateLimit() referencia um pelo nome
+        throttlers: [
+          { name: 'default', ttl: cfg.get<number>('THROTTLE_TTL', 60_000),  limit: cfg.get<number>('THROTTLE_LIMIT', 100) },
+          { name: 'auth',    ttl: 60_000, limit: 10  },
+          { name: 'reports', ttl: 60_000, limit: 5   },
+          { name: 'finance', ttl: 60_000, limit: 30  },
+        ],
       }),
     }),
 
     EventEmitterModule.forRoot({ wildcard: true }),
+    ScheduleModule.forRoot(),
 
     AuthModule,
     AuditModule,
@@ -118,6 +129,9 @@ import { databaseConfig } from '@config/database.config';
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditLogInterceptor },
+    // TenantStatusGuard executa após JwtAuthGuard (ordem de registro importa)
+    // JwtAuthGuard já está registrado no AuthModule como APP_GUARD
+    { provide: APP_GUARD, useClass: TenantStatusGuard },
   ],
 })
 export class AppModule {}

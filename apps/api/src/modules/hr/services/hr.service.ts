@@ -20,6 +20,7 @@ import {
 } from '../dto/hr.dto';
 
 import { User, UserRole, UserStatus } from '@modules/auth/entities/user.entity';
+import { ROLE_PERMISSIONS } from '@shared/permissions';
 
 // Tabela de INSS 2024 (simplificada)
 const INSS_TABLE = [
@@ -440,13 +441,6 @@ export class HRService {
   }
 
   private defaultPermissions(role: UserRole): string[] {
-    const map: Record<UserRole, string[]> = {
-      [UserRole.SUPER_ADMIN]:  ['*'],
-      [UserRole.TENANT_ADMIN]: ['users:manage','finance:manage','inventory:manage','sales:manage','hr:manage','reports:view'],
-      [UserRole.MANAGER]:      ['finance:view','inventory:manage','sales:manage','hr:manage','users:manage','reports:view'],
-      [UserRole.EMPLOYEE]:     ['inventory:view','sales:view'],
-      [UserRole.VIEWER]:       ['reports:view'],
-    };
-    return map[role] ?? [];
+    return ROLE_PERMISSIONS[role] ?? [];
   }
 }

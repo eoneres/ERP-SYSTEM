@@ -11,6 +11,7 @@ import { User } from './entities/user.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { JwtAuthGuard, RolesGuard, PermissionsGuard } from './guards/auth.guard';
+import { TokenBlacklistService } from './services/token-blacklist.service';
 
 @Module({
   imports: [
@@ -28,13 +29,13 @@ import { JwtAuthGuard, RolesGuard, PermissionsGuard } from './guards/auth.guard'
   controllers: [AuthController],
   providers: [
     AuthService,
+    TokenBlacklistService,
     JwtStrategy,
     JwtRefreshStrategy,
-    // Apply globally
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
-  exports: [AuthService, JwtModule],
+  exports: [AuthService, TokenBlacklistService, JwtModule],
 })
 export class AuthModule {}

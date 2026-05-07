@@ -2,10 +2,10 @@ import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as dotenv from 'dotenv';
+import { ROLE_PERMISSIONS } from '../../shared/permissions';
 
 dotenv.config({ path: '.env' });
 
-export const DEMO_TENANT_ID   = '00000000-0000-4000-8000-000000000001';
 export const DEMO_TENANT_SLUG = 'demo-tenant';
 
 const AppDataSource = new DataSource({
@@ -32,21 +32,26 @@ async function main() {
 
   try {
     // ── 1. Tenant demo ──────────────────────────────────────────────────────
+    // Resolve pelo slug — usa o ID real do banco, nunca um UUID fixo hardcoded.
+    // Isso garante idempotência mesmo que o banco seja recriado.
     const [existing] = await qr.query(
-      `SELECT id FROM tenants WHERE id = $1 OR slug = $2 LIMIT 1`,
-      [DEMO_TENANT_ID, DEMO_TENANT_SLUG],
+      `SELECT id FROM tenants WHERE slug = $1 LIMIT 1`,
+      [DEMO_TENANT_SLUG],
     );
 
+    let DEMO_TENANT_ID: string;
+
     if (existing) {
-      console.log(`ℹ️  Tenant '${DEMO_TENANT_SLUG}' já existe`);
+      DEMO_TENANT_ID = existing.id;
+      console.log(`ℹ️  Tenant '${DEMO_TENANT_SLUG}' já existe (id: ${DEMO_TENANT_ID})`);
     } else {
-      await qr.query(`
+      const [created] = await qr.query(`
         INSERT INTO tenants (
-          id, slug, company_name, trade_name, email, plan, status,
+          slug, company_name, trade_name, email, plan, status,
           address, branding, feature_flags, settings, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+        RETURNING id
       `, [
-        DEMO_TENANT_ID,
         DEMO_TENANT_SLUG,
         'ERP Demo Company',
         'Demo Corp',
@@ -58,6 +63,7 @@ async function main() {
         JSON.stringify({}),
         JSON.stringify({ currency: 'BRL', language: 'pt-BR', timezone: 'America/Sao_Paulo', dateFormat: 'DD/MM/YYYY' }),
       ]);
+      DEMO_TENANT_ID = created.id;
       console.log(`✅ Tenant criado: ${DEMO_TENANT_SLUG} (id: ${DEMO_TENANT_ID})`);
     }
 
@@ -81,20 +87,22 @@ async function main() {
         'Admin', 'Demo', 'admin@demo.com', hash,
         'tenant_admin', 'active',
         DEMO_TENANT_ID,
-        JSON.stringify(['*']),
+        JSON.stringify(ROLE_PERMISSIONS['tenant_admin']),
         JSON.stringify({}),
         0,
       ]);
       console.log(`✅ admin@demo.com criado (senha: Admin@123)`);
     }
 
-    // ── 3. Gerente ─────────────────────────────────────────────────────────
+    // ── 3. Gerente ──────────────────────────────────────────────────────────
     const [existingMgr] = await qr.query(
       `SELECT id FROM users WHERE email = $1 AND tenant_id = $2 LIMIT 1`,
       ['gerente@demo.com', DEMO_TENANT_ID],
     );
 
-    if (!existingMgr) {
+    if (existingMgr) {
+      console.log(`ℹ️  gerente@demo.com já existe`);
+    } else {
       const hash = await bcrypt.hash('Gerente@123', 12);
       await qr.query(`
         INSERT INTO users (
@@ -106,14 +114,14 @@ async function main() {
         'João', 'Gerente', 'gerente@demo.com', hash,
         'manager', 'active',
         DEMO_TENANT_ID,
-        JSON.stringify(['reports:view','finance:view','inventory:manage','sales:manage','hr:view']),
+        JSON.stringify(ROLE_PERMISSIONS['manager']),
         JSON.stringify({}),
         0,
       ]);
       console.log(`✅ gerente@demo.com criado (senha: Gerente@123)`);
     }
 
-    // ── 4. Conta bancária demo ──────────────────────────────────────────────
+    // ── 4. Contas bancárias demo ────────────────────────────────────────────
     try {
       const [acct] = await qr.query(
         `SELECT id FROM finance_accounts WHERE tenant_id = $1 LIMIT 1`,
@@ -128,11 +136,12 @@ async function main() {
             ('Caixa', 'cash', NULL, 5000, 5000, 'BRL', true, $1, NOW(), NOW())
         `, [DEMO_TENANT_ID]);
         console.log(`✅ Contas financeiras criadas`);
+      } else {
+        console.log(`ℹ️  Contas financeiras já existem`);
       }
     } catch { console.log(`⚠️  finance_accounts ainda não existe — rode após sync`); }
 
-
-    // ── 4. Categorias financeiras padrão ──────────────────────────────────────
+    // ── 5. Categorias financeiras padrão ────────────────────────────────────
     try {
       const [existCat] = await qr.query(
         `SELECT id FROM finance_categories WHERE tenant_id = $1 LIMIT 1`,
@@ -145,17 +154,15 @@ async function main() {
         );
         const adminId = adminRow?.id ?? null;
         const cats = [
-          // receitas
           { name: 'Vendas de Produtos',    type: 'income',  color: '#10B981', icon: 'shopping-bag' },
-          { name: 'Prestação de Serviços', type: 'income',  color: '#3B82F6', icon: 'briefcase' },
-          { name: 'Outros Recebimentos',   type: 'income',  color: '#8B5CF6', icon: 'plus-circle' },
-          // despesas
-          { name: 'Folha de Pagamento',    type: 'expense', color: '#EF4444', icon: 'users' },
-          { name: 'Fornecedores',          type: 'expense', color: '#F59E0B', icon: 'truck' },
-          { name: 'Aluguel',               type: 'expense', color: '#EC4899', icon: 'home' },
-          { name: 'Utilities',             type: 'expense', color: '#06B6D4', icon: 'zap' },
-          { name: 'Impostos',              type: 'expense', color: '#6B7280', icon: 'file-text' },
-          { name: 'Marketing',             type: 'expense', color: '#F97316', icon: 'trending-up' },
+          { name: 'Prestação de Serviços', type: 'income',  color: '#3B82F6', icon: 'briefcase'    },
+          { name: 'Outros Recebimentos',   type: 'income',  color: '#8B5CF6', icon: 'plus-circle'  },
+          { name: 'Folha de Pagamento',    type: 'expense', color: '#EF4444', icon: 'users'        },
+          { name: 'Fornecedores',          type: 'expense', color: '#F59E0B', icon: 'truck'        },
+          { name: 'Aluguel',               type: 'expense', color: '#EC4899', icon: 'home'         },
+          { name: 'Utilities',             type: 'expense', color: '#06B6D4', icon: 'zap'          },
+          { name: 'Impostos',              type: 'expense', color: '#6B7280', icon: 'file-text'    },
+          { name: 'Marketing',             type: 'expense', color: '#F97316', icon: 'trending-up'  },
           { name: 'Outros Gastos',         type: 'expense', color: '#9CA3AF', icon: 'minus-circle' },
         ];
         for (const c of cats) {

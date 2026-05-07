@@ -1,5 +1,5 @@
-import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { NestFactory, Reflector } from '@nestjs/core';
+import { ValidationPipe, ClassSerializerInterceptor } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import * as helmet from 'helmet';
@@ -63,7 +63,14 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(new ResponseTransformInterceptor());
+  app.useGlobalInterceptors(
+    // Ordem importa: ClassSerializer primeiro para excluir campos sensíveis,
+    // depois ResponseTransform para envolver no envelope ApiResponse.
+    // strategy 'exposeAll' (padrão): todos os campos são expostos EXCETO
+    // os marcados com @Exclude() — passwordHash, refreshTokenHash.
+    new ClassSerializerInterceptor(app.get(Reflector)),
+    new ResponseTransformInterceptor(),
+  );
 
   if (nodeEnv !== 'production') {
     const swaggerCfg = new DocumentBuilder()

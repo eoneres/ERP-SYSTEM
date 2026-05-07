@@ -16,10 +16,10 @@ import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-// UUID fixo do tenant demo — gerado pelo seed.ts
-// O backend também aceita o slug "demo-tenant" e resolve para este UUID.
+// Usa o slug como fallback — o backend resolve para o UUID real automaticamente.
+// Isso evita que o sistema quebre se o banco for recriado com novo UUID.
 const DEMO_TENANT_ID =
-  process.env.NEXT_PUBLIC_DEMO_TENANT_ID || '00000000-0000-4000-8000-000000000001';
+  process.env.NEXT_PUBLIC_DEMO_TENANT_ID || 'demo-tenant';
 
 function DemoBanner({ onFill }: { onFill: () => void }) {
   return (

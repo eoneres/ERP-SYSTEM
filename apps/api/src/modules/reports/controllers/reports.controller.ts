@@ -7,8 +7,11 @@ import { ReportsService, GenerateReportDto } from '../services/reports.service';
 import { ReportModule } from '../entities/report-template.entity';
 import { ExportFormat } from '../entities/report-execution.entity';
 import { JwtAuthGuard } from '@modules/auth/guards/auth.guard';
+import { RequirePermissions } from '@modules/auth/guards/auth.guard';
 import { CurrentUser, CurrentTenantId } from '@modules/auth/decorators/current-user.decorator';
 import { ApiResponse } from '@shared/dto/api-response.dto';
+import { RateLimit } from '@shared/decorators/rate-limit.decorator';
+import { PERMISSIONS } from '@shared/permissions';
 
 class GenerateDto implements GenerateReportDto {
   @ApiProperty() @IsUUID() templateId: string;
@@ -19,11 +22,13 @@ class GenerateDto implements GenerateReportDto {
 @ApiTags('Reports')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
+@RateLimit('reports')
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly svc: ReportsService) {}
 
   @Get('templates')
+  @RequirePermissions(PERMISSIONS.REPORTS_VIEW)
   @ApiOperation({ summary: 'Listar templates de relatório' })
   @ApiQuery({ name: 'module', enum: ReportModule, required: false })
   async getTemplates(
@@ -34,12 +39,14 @@ export class ReportsController {
   }
 
   @Get('templates/:id')
+  @RequirePermissions(PERMISSIONS.REPORTS_VIEW)
   @ApiOperation({ summary: 'Buscar template por ID' })
   async getTemplate(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return ApiResponse.ok(await this.svc.getTemplate(id, tenantId));
   }
 
   @Post('generate')
+  @RequirePermissions(PERMISSIONS.REPORTS_GENERATE)
   @ApiOperation({ summary: 'Gerar relatório — enfileira no BullMQ (retorna executionId) ou executa inline se Redis indisponível' })
   async generate(
     @CurrentTenantId() tenantId: string,
@@ -54,6 +61,7 @@ export class ReportsController {
   }
 
   @Get('executions')
+  @RequirePermissions(PERMISSIONS.REPORTS_VIEW)
   @ApiOperation({ summary: 'Histórico de relatórios gerados' })
   async getExecutions(
     @CurrentTenantId() tenantId: string,

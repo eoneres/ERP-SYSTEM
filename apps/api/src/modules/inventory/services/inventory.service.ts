@@ -247,6 +247,9 @@ export class InventoryService {
           stockAfter = dto.quantity;
           break;
         case MovementType.TRANSFER:
+          if (!dto.destinationWarehouseId) {
+            throw new BadRequestException('Transferência requer depósito de destino (destinationWarehouseId)');
+          }
           if (stockBefore < dto.quantity) {
             throw new BadRequestException('Estoque insuficiente para transferência');
           }
@@ -269,6 +272,35 @@ export class InventoryService {
         reason: dto.reason ?? MovementReason.OTHER,
       });
       const saved = await em.save(StockMovement, movement);
+
+      // TRANSFER: credita o depósito de destino atomicamente
+      if (dto.type === MovementType.TRANSFER && dto.destinationWarehouseId) {
+        const destProduct = await em.findOne(Product, {
+          where: { id: dto.productId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (destProduct) {
+          const destBefore = Number(destProduct.stockQuantity);
+          destProduct.stockQuantity = destBefore + dto.quantity;
+          await em.save(Product, destProduct);
+
+          await em.save(StockMovement, em.create(StockMovement, {
+            tenantId,
+            createdBy: userId,
+            productId:       dto.productId,
+            warehouseId:     dto.destinationWarehouseId,
+            type:            MovementType.IN,
+            reason:          MovementReason.TRANSFER,
+            quantity:        dto.quantity,
+            stockBefore:     destBefore,
+            stockAfter:      destBefore + dto.quantity,
+            unitCost:        dto.unitCost,
+            movementDate:    movement.movementDate,
+            referenceNumber: saved.id, // vincula à saída
+            notes:           `Transferência recebida de depósito ${dto.warehouseId ?? 'padrão'}`,
+          }));
+        }
+      }
 
       this.eventEmitter.emit('inventory.movement.created', {
         tenantId, movementId: saved.id, productId: product.id,
@@ -351,5 +383,65 @@ export class InventoryService {
       .orderBy('p.stockQuantity', 'ASC')
       .limit(20)
       .getMany();
+  }
+
+  // ─── Estorno ────────────────────────────────────────────────────────────────
+
+  async reverseMovement(movementId: string, tenantId: string, userId: string) {
+    return this.dataSource.transaction(async (em) => {
+      const original = await em.findOne(StockMovement, {
+        where: { id: movementId, tenantId },
+      });
+      if (!original) throw new NotFoundException('Movimentação não encontrada');
+
+      if (original.type === MovementType.TRANSFER) {
+        throw new BadRequestException('Transferências devem ser estornadas individualmente por cada movimento gerado');
+      }
+
+      const product = await em.findOne(Product, {
+        where: { id: original.productId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!product) throw new NotFoundException('Produto não encontrado');
+
+      const stockBefore = Number(product.stockQuantity);
+      const reverseType = (original.type === MovementType.IN || original.type === MovementType.RETURN)
+        ? MovementType.OUT
+        : MovementType.IN;
+
+      let stockAfter: number;
+      if (reverseType === MovementType.OUT) {
+        if (stockBefore < Number(original.quantity)) {
+          throw new BadRequestException(
+            `Estoque insuficiente para estorno. Disponível: ${stockBefore}, Necessário: ${original.quantity}`,
+          );
+        }
+        stockAfter = stockBefore - Number(original.quantity);
+      } else {
+        stockAfter = stockBefore + Number(original.quantity);
+      }
+
+      product.stockQuantity = stockAfter;
+      await em.save(Product, product);
+
+      const reversal = em.create(StockMovement, {
+        tenantId,
+        createdBy:       userId,
+        productId:       original.productId,
+        warehouseId:     original.warehouseId,
+        type:            reverseType,
+        reason:          MovementReason.ADJUSTMENT,
+        quantity:        original.quantity,
+        stockBefore,
+        stockAfter,
+        unitCost:        original.unitCost,
+        movementDate:    new Date(),
+        referenceNumber: original.id,
+        notes:           `Estorno da movimentação ${original.id}`,
+      });
+      const saved = await em.save(StockMovement, reversal);
+      await this.bust(tenantId, 'summary');
+      return saved;
+    });
   }
 }
